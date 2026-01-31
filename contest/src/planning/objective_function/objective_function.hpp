@@ -101,7 +101,7 @@ const double tp_step = 0.5; // 0.5초 단위 (0.5, 1.0, 1.5, 2.0 -> 총 4가지 
 // const double W_HEADING = 5.0;
 // const double W_DIST_OBS = 7.0;
 // const double W_VEL = 2.0;
-// const double W_PATH = 5.0:
+// const double W_PATH = 5.0;
 // const double W_BOUNDARY = 5.0;
 
 // const double W_HEADING = 6.0;
