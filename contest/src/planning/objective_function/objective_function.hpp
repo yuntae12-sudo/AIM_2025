@@ -33,7 +33,14 @@ using namespace std;
 
 //     double radius;   // 반경(m)
 // };
+struct Point {
+    double e;
+    double n;
+};
 
+struct OBB {
+    Point vertices[4];
+};
 
 struct Candidate_struct {
     // [입력값]
@@ -74,6 +81,10 @@ struct RobotConstants {
     double decel_ang = 1.50256;
     
     double wheelbase = 3.0;            // w 계산용 축거 (차량에 맞게 수정)
+    double length = 4.635;
+    double width = 1.892;
+    double f_overhang = 0.845;
+    double r_overhang = 0.79;
 
     double dt = 2.0;                   // 제어 주기
 };
@@ -124,6 +135,8 @@ void generateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<eg
                         const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg, const RobotConstants& roboconsts,
                         const vector<Obstacle_struct>& Obstacle_vec, const vector<egoPath_struc>& in_boundary, const vector<egoPath_struc>& out_boundary);
 double getDistanceToOBB(double px, double py, const Obstacle_struct& obs);
+OBB GetEgoOBB(const morai_msgs::GPSMessage::ConstPtr& gps_msg, egoPose_struc& egoPose, RobotConstants& ego_spec);
+OBB GetObsOBB (Obstacle_struct& obs_state);
 void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Obstacle_struct>& Obstacle_vec,
                         const vector<egoPath_struc>& egoPath_vec, const egoPose_struc& egoPose, const egoVelocity_struc& egoVelocity_struc,
                         const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg,
@@ -131,5 +144,6 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
 double normalize_angle(double angle);
 int getCurrentIndex(const std::vector<egoPath_struc>& path, const egoPose_struc& pose, int last_idx);
 Candidate_struct selectBestCandidate(const vector<Candidate_struct>& Candidate_vec);
+
 
 #endif

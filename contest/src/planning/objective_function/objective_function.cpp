@@ -56,6 +56,60 @@ double normalize_angle(double angle) {
     return angle;
 }
 
+OBB GetEgoOBB(const morai_msgs::GPSMessage::ConstPtr& gps_msg, egoPose_struc& egoPose, RobotConstants& ego_spec) {
+    OBB obb;
+
+    double dist_to_center_axel = (ego_spec.length * 0.5) - ego_spec.f_overhang;
+
+    double center_e = egoPose.current_e - dist_to_center_axel * cos(egoPose.current_yaw);
+    double center_n = egoPose.current_n - dist_to_center_axel * sin(egoPose.current_yaw);
+
+    double half_l = ego_spec.length * 0.5;
+    double half_w = ego_spec.width * 0.5;
+
+    // Local coordinates: FL, FR, RR, RL
+    double local_e[4] = { half_l,  half_l, -half_l, -half_l };
+    double local_y[4] = { half_w, -half_w, -half_w,  half_w };
+
+    // 5. 세계 좌표계(ENU)로 변환 (Rotation & Translation)
+    double cos_y = cos(egoPose.current_yaw);
+    double sin_y = sin(egoPose.current_yaw);
+
+    for (int i = 0; i < 4; ++i) {
+        obb.vertices[i].e = center_e + (local_e[i] * cos_y - local_y[i] * sin_y);
+        obb.vertices[i].n = center_n + (local_e[i] * sin_y + local_y[i] * cos_y);
+    }
+
+    return obb;
+}
+
+OBB GetObsOBB (Obstacle_struct& obs_state) { 
+    OBB obs_obb;
+
+    // 데이터가 유효하지 않으면 0으로 초기화된 OBB 반환
+    if (!std::isfinite(obs_state.e) || !std::isfinite(obs_state.n) || 
+        !std::isfinite(obs_state.heading)) {
+        for(int i=0; i<4; ++i) { obs_obb.vertices[i].e = 0; obs_obb.vertices[i].n = 0; }
+        return obs_obb;
+    }
+
+    double half_l = obs_state.length * 0.5;
+    double half_w = obs_state.width * 0.5;
+
+    double local_e[4] = { half_l, half_l, -half_l, -half_l };
+    double local_y[4] = { half_w, -half_w, -half_w, half_w };
+
+    double cos_y = cos(obs_state.heading);
+    double sin_y = sin(obs_state.heading);
+
+    for (int i = 0; i < 4; ++i) {
+        obs_obb.vertices[i].e = obs_state.e + (local_e[i] * cos_y - local_y[i] * sin_y);
+        obs_obb.vertices[i].n = obs_state.n + (local_e[i] * sin_y + local_y[i] * cos_y);
+    }
+
+    return obs_obb;
+}
+
 // [Helper Function] 현재 내 차량이 경로의 몇 번째 점에 있는지 찾기
 int getCurrentIndex(const vector<egoPath_struc>& path, const egoPose_struc& pose, int last_idx) {
     
@@ -220,18 +274,7 @@ void generateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<eg
                         future_yaw += (v * sin(beta) / l_rear) * dt;
                         bool out_left = BoundaryCheck(future_e, future_n, in_boundary_vec, true);
                         bool out_right = BoundaryCheck(future_e, future_n, out_boundary_vec, false);
-                        // if (out_left && !out_right) {
-                        //     is_ego_inside = true;
-                        // }
-                        // else if (!out_left && out_right) {
-                        //     is_ego_inside = true;
-                        // }
-                        // else if (!out_left && !out_right) {
-                        //     is_ego_inside = false;
-                        // }
-                        // else if (out_left && out_right) {
-                        //     is_ego_inside = false;
-                        // }
+
                         if (out_left || out_right) {
                             is_safe_path = false;
                         }
@@ -268,7 +311,7 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
     const double goal_v_none = 30.0 / 3.6; // 속도 제한값 (m/s)
     const double goal_v_obs = 20.0 / 3.6;  // 장애물 있을 시 mps
     double current_v = vel_msg->velocity.x;
-    bool is_static = false;
+    bool is_dynamic = false;
 
     double max_dist_score = -1e9, min_dist_score = 1e9;
     double max_vel_score = -1e9, min_vel_score = 1e9;
@@ -309,33 +352,28 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
                 // double obs_future_n = obs.n + (obs.obs_vel_n * t);
 
                 double dist = 0.0;
-                double obs_radius = 1.5;
+                double obs_radius = 1.0;
 
-                if(abs(obs.obs_vel_e) < 2.0 || abs(obs.obs_vel_n) < 2.0) {
-                    is_static = true;
+                double diff_e = obs.e - obs.prev_e;
+                double diff_n = obs.n - obs.prev_n;
+
+                if(abs(diff_e) > 1.5 && abs(diff_n) > 1.5) {
+                    is_dynamic = true;
                 } else {
-                    is_static = false;
+                    is_dynamic = false;
                 }
+
+                double obs_future_e = obs.e;
+                double obs_future_n = obs.n;
+                dist = hypot(future_e - obs_future_e, future_n - obs_future_n) - obs_radius - ego_radius;
 
                 // 거리 계산: (내 미래 위치) <-> (장애물 미래 위치) - (장애물 반지름)
                 // 필요하다면 여기에 내 차의 반지름(혹은 안전마진)도 추가로 빼주면 더 안전합니다.
                 // dist = hypot(future_e - obs_future_e, future_n - obs_future_n) - obs_radius - ego_radius;
 
                 // 정적일 때
-                if(is_static) {
-                    double obs_future_e = obs.e;
-                    double obs_future_n = obs.n;
-                    dist = hypot(future_e - obs_future_e, future_n - obs_future_n) - obs_radius - ego_radius;
-
-                    if(dist < min_obs_dist) {
-                        min_obs_dist = dist;
-                    }
-                } else {
+                if(is_dynamic) {
                     // 동적일 때
-                    double obs_future_e = obs.e + (obs.obs_vel_e * t);
-                    double obs_future_n = obs.n + (obs.obs_vel_n * t);
-                    dist = hypot(future_e - obs_future_e, future_n - obs_future_n) - obs_radius - ego_radius;
-
                     if(dist < 6.0) {
                         candidate.total_score = -999;
                         break;
@@ -343,6 +381,10 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
                         if(dist < min_obs_dist) {
                             min_obs_dist = dist;
                         }
+                    }
+                } else {
+                    if(dist < min_obs_dist) {
+                        min_obs_dist = dist;
                     }
                 }    
             }
@@ -367,17 +409,8 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
         // v_i: cand.v (후보 속도)
         // v_actual: current_v (현재 속도)
         // 의미: 현재 속도보다 더 빠를수록(가속할수록), 혹은 절대적으로 빠를수록 점수가 높음
-        // if (!Obstacle_vec.empty()) {
-        //     candidate.score_vel = -fabs(goal_v_none -candidate.v);
-        // }
-        // else {
-        //     candidate.score_vel = -fabs(goal_v_obs -candidate.v);
-        // }
+
         candidate.score_vel = -fabs(goal_v_none -candidate.v);
-
-
-
-
 
         if (candidate.score_vel > max_vel_score) {
             max_vel_score = candidate.score_vel;
@@ -463,6 +496,7 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
 Candidate_struct selectBestCandidate(const vector<Candidate_struct>& Candidate_vec) {
     
     Candidate_struct best_cand;
+    Obstacle_struct obs;
     
     // 1. 초기값 설정 (가장 낮은 점수로 초기화)
     best_cand.total_score = -1e9; 

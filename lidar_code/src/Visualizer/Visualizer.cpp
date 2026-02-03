@@ -1,18 +1,15 @@
 #include "Visualizer.hpp"
 #include <tf2/LinearMath/Quaternion.h> // 헤딩을 쿼터니언으로 바꾸기 위해 필요
 
-void PublishObjectBoundingBox(ros::Publisher& pub, const std::vector<Lbox>& vec_Objects, const std::string& frame_id) {
+void PublishObjectBoundingBox(ros::Publisher& pub, const std::vector<Lbox>& vec_Objects, const std::string& frame_id, const ros::Time& stamp) {
     visualization_msgs::MarkerArray marker_array;
     
     // [최적화 1] 메모리 예약 (객체 개수 + 삭제 마커 1개)
     marker_array.markers.reserve(vec_Objects.size() + 1);
 
-    // [최적화 2] 공통 타임스탬프 (단 한 번의 시스템 콜)
-    ros::Time now = ros::Time::now();
-
     visualization_msgs::Marker delete_marker;
     delete_marker.header.frame_id = frame_id;
-    delete_marker.header.stamp = now;
+    delete_marker.header.stamp = stamp;
     delete_marker.action = visualization_msgs::Marker::DELETEALL;
     marker_array.markers.push_back(delete_marker);
 
@@ -21,7 +18,7 @@ void PublishObjectBoundingBox(ros::Publisher& pub, const std::vector<Lbox>& vec_
         visualization_msgs::Marker marker;
         
         marker.header.frame_id = frame_id;
-        marker.header.stamp = now; // 공통 시간 사용
+        marker.header.stamp = stamp; // 공통 시간 사용
         marker.ns = "l_shape";
         marker.id = (int)i;
         marker.type = visualization_msgs::Marker::CUBE;
@@ -56,15 +53,12 @@ void PublishObjectBoundingBox(ros::Publisher& pub, const std::vector<Lbox>& vec_
 #include <sensor_msgs/PointCloud2.h>
 #include <pcl_conversions/pcl_conversions.h>
 
-void PublishClusters(ros::Publisher& pub, const LiDAR& st_LiDAR, const std::string& frame_id) {
+void PublishClusters(ros::Publisher& pub, const LiDAR& st_LiDAR, const std::string& frame_id, const ros::Time& stamp) {
     if (st_LiDAR.cluster_indices.empty()) return;
 
     // [최적화 1] 객체 재사용 (static)
     static pcl::PointCloud<pcl::PointXYZRGB>::Ptr colored_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
     colored_cloud->clear(); // 메모리 해제 없이 바구니만 비움
-    
-    // [최적화 2] 공통 타임스탬프 사용
-    ros::Time now = ros::Time::now();
 
     int cluster_id = 0;
     for (const auto& indices : st_LiDAR.cluster_indices) {
@@ -86,45 +80,38 @@ void PublishClusters(ros::Publisher& pub, const LiDAR& st_LiDAR, const std::stri
     sensor_msgs::PointCloud2 output;
     pcl::toROSMsg(*colored_cloud, output);
     output.header.frame_id = frame_id;
-    output.header.stamp = now;
+    output.header.stamp = stamp;
 
     pub.publish(output);
 }
 
-void PublishPointCloud(ros::Publisher& pub, const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud, const std::string& frame_id) {
+void PublishPointCloud(ros::Publisher& pub, const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud, const std::string& frame_id, const ros::Time& stamp) {
     if (cloud->empty()) return;
 
     // [최적화 1] 메시지 객체 재사용 (Capacity 유지)
     static sensor_msgs::PointCloud2::Ptr output_ptr(new sensor_msgs::PointCloud2);
-    
-    // [최적화 2] 공통 시간 사용
-    ros::Time now = ros::Time::now();
 
     // PCL 데이터를 메시지로 변환 (필연적인 복사 구간)
     pcl::toROSMsg(*cloud, *output_ptr);
     
     output_ptr->header.frame_id = frame_id;
-    output_ptr->header.stamp = now;
+    output_ptr->header.stamp = stamp;
 
     // [최적화 3] 포인터를 발행하여 ROS 내부 복사 최소화
     pub.publish(output_ptr);
 }
 
-void PublishTracks(ros::Publisher& pub, const std::vector<Track>& vec_Tracks, const std::string& frame_id) {
+void PublishTracks(ros::Publisher& pub, const std::vector<Track>& vec_Tracks, const std::string& frame_id, const ros::Time& stamp) {
     visualization_msgs::MarkerArray marker_array;
     
     // [최적화 1] 메모리 예약 (트랙당 마커 2개: 박스+텍스트, 그리고 삭제 마커 1개)
     // 루프 돌기 전 미리 공간을 확보하여 벡터 재할당(이사) 비용을 0으로 만듭니다.
     marker_array.markers.reserve(vec_Tracks.size() * 2 + 1);
 
-    // [최적화 2] 공통 타임스탬프 (단 한 번의 시스템 콜)
-    // 루프 안에서 매번 시간을 묻지 않고, 모든 마커가 동일한 시간을 공유하게 합니다.
-    ros::Time now = ros::Time::now();
-
     // 이전 마커 삭제 (필수)
     visualization_msgs::Marker delete_marker;
     delete_marker.header.frame_id = frame_id;
-    delete_marker.header.stamp = now;
+    delete_marker.header.stamp = stamp;
     delete_marker.action = visualization_msgs::Marker::DELETEALL;
     marker_array.markers.push_back(delete_marker);
 
@@ -135,7 +122,7 @@ void PublishTracks(ros::Publisher& pub, const std::vector<Track>& vec_Tracks, co
         // --- 1. 바운딩 박스 마커 (CUBE) ---
         visualization_msgs::Marker box_marker;
         box_marker.header.frame_id = frame_id;
-        box_marker.header.stamp = now; // 공통 시간 사용
+        box_marker.header.stamp = stamp; // 공통 시간 사용
         box_marker.ns = "track_boxes";
         box_marker.id = t.s32_ID; 
         box_marker.type = visualization_msgs::Marker::CUBE;
@@ -170,7 +157,7 @@ void PublishTracks(ros::Publisher& pub, const std::vector<Track>& vec_Tracks, co
         // --- 2. ID 및 속도 텍스트 마커 (TEXT_VIEW_FACING) ---
         visualization_msgs::Marker text_marker;
         text_marker.header.frame_id = frame_id;
-        text_marker.header.stamp = now; // 공통 시간 사용
+        text_marker.header.stamp = stamp; // 공통 시간 사용
         text_marker.ns = "track_info";
         text_marker.id = t.s32_ID + 10000; // ID 중복 방지
         text_marker.type = visualization_msgs::Marker::TEXT_VIEW_FACING;

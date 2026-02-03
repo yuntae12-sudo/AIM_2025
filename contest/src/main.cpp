@@ -28,7 +28,8 @@ ros::Publisher waypoints_pub;
 ros::Publisher candidate_paths_pub;
 ros::Publisher best_path_pub;
 ros::Publisher boundary_pub;
-ros::Publisher ego_circle_pub;
+ros::Publisher ego_obb_pub;\
+ros::Publisher obs_obb_pub;
 
 ros::Subscriber sub_gps;
 ros::Subscriber sub_imu;
@@ -52,6 +53,7 @@ vector<egoPath_struc> out_boundary_vec;
 
 int last_closest_idx = 0;
 
+morai_msgs::EgoVehicleStatus::ConstPtr vel_msg;
 morai_msgs::GPSMessage::ConstPtr gps_msg;
 contest::LaneInfo::ConstPtr lane_msg;
 
@@ -66,28 +68,54 @@ void imuCallback (const sensor_msgs::Imu::ConstPtr& imu_msg) {
     yawTf(imu_msg, egoPose);
 }
 
-void obsCallback (const lidar_code::TrackArray::ConstPtr& track_msg) {
+void obsCallback(const lidar_code::TrackArray::ConstPtr& track_msg) {
+    // 1. 이전 프레임의 위치를 저장할 저장소 (static을 사용하여 데이터 유지)
+    // 혹은 main.cpp 상단에 전역 변수로 선언해도 됩니다.
+    static map<int, PoseHistory_struc> prev_obs_pose_map;
+
+    // 현재 프레임 정보를 담기 전, 맵을 비움 (전역 obstacles_map 업데이트용)
     obstacles_map.clear();
 
     for (const auto& track_data : track_msg->tracks) {
-    Obstacle_struct obstacle;
+        Obstacle_struct obstacle;
+        int current_id = track_data.id;
 
-    obsCordinate(track_data, obstacle, egoPose);
-    obsVelocity(track_data, obstacle, egoPose, egoVelocity);
-
-    obstacle.length = track_data.length;
-    obstacle.width = track_data.width;
-    obstacle.heading = track_data.heading;
-
-    // obstacle.id  = track.id;
-
-    // // [수정된 코드] 장애물의 대각선 길이의 절반을 반지름으로 설정
-    obstacle.radius = sqrt(pow(track_data.length, 2) + pow(track_data.width, 2)) / 2.0;
-
-    // // 만약 값이 0이거나 너무 작으면 최소 크기 보정 (옵션)
-    if (obstacle.radius < 0.1) obstacle.radius = 0.1;
+        // 좌표 및 속도 계산 (localization.cpp의 함수 호출)
+        obsCordinate(track_data, obstacle, egoPose, vel_msg);
+        obsVelocity(track_data, obstacle, egoPose, egoVelocity, vel_msg);
     
-    obstacles_map[track_data.id] = obstacle;
+        // 2. 핵심 로직: 이전 프레임 기록이 있는지 확인
+        if (prev_obs_pose_map.find(current_id) != prev_obs_pose_map.end()) {
+            // 과거 기록이 있다면 prev_e/n에 할당
+            obstacle.prev_e = prev_obs_pose_map[current_id].e;
+            obstacle.prev_n = prev_obs_pose_map[current_id].n;
+        } else {
+            // 처음 발견된 장애물이라면 현재 위치를 이전 위치로 초기화
+            obstacle.prev_e = obstacle.e;
+            obstacle.prev_n = obstacle.n;
+        }
+
+        // 장애물 기본 정보 업데이트
+        obstacle.id = current_id;
+        obstacle.length = track_data.length;
+        obstacle.width = track_data.width;
+        obstacle.heading = track_data.heading;
+        
+        // 반지름 설정: 대각선 길이의 절반 (안전 마진)
+        obstacle.radius = sqrt(pow(track_data.length, 2) + pow(track_data.width, 2)) / 2.0;
+        if (obstacle.radius < 0.1) obstacle.radius = 0.1;
+        
+        // 전역 맵에 저장
+        obstacles_map[current_id] = obstacle;
+    }
+
+    // 3. 다음 프레임을 위해 현재 위치를 prev 저장소에 백업
+    prev_obs_pose_map.clear();
+    for (const auto& pair : obstacles_map) {
+        PoseHistory_struc hist;
+        hist.e = pair.second.e;
+        hist.n = pair.second.n;
+        prev_obs_pose_map[pair.first] = hist;
     }
 }
 
@@ -95,12 +123,16 @@ void laneCallback (const contest::LaneInfo::ConstPtr& msg) {
     lane_msg = msg;
 }
 
-void mainCallback (const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg) {
+void mainCallback (const morai_msgs::EgoVehicleStatus::ConstPtr& msg) {
+
+    vel_msg = msg;
 
     if(!gps_msg) return;
     // if(!lane_msg) return;
     
-    bodyframe2Enu(egoPose, egoVelocity, vel_msg);
+    OBB ego_obb = GetEgoOBB(gps_msg, egoPose, roboconsts);
+
+    bodyframe2Enu(egoPose, egoVelocity, msg);
     int current_path_idx = getCurrentIndex(egoPath_vec, egoPose, last_closest_idx);
     last_closest_idx = current_path_idx; // 다음을 위해 저장
 
@@ -118,8 +150,8 @@ void mainCallback (const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg) {
             obstacles.push_back(pair.second);
         }
 
-        generateCandidates(Candidate_vec, egoPath_vec, egoPose, vel_msg, roboconsts, obstacles, in_boundary_vec, out_boundary_vec);
-        evaluateCandidates(Candidate_vec, obstacles, egoPath_vec, egoPose, egoVelocity, vel_msg, current_path_idx);
+        generateCandidates(Candidate_vec, egoPath_vec, egoPose, msg, roboconsts, obstacles, in_boundary_vec, out_boundary_vec);
+        evaluateCandidates(Candidate_vec, obstacles, egoPath_vec, egoPose, egoVelocity, msg, current_path_idx);
 
         Candidate_struct best_candidate = selectBestCandidate(Candidate_vec);
 
@@ -157,8 +189,9 @@ void mainCallback (const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg) {
             for (const auto& obs : obstacles) {
                 double speed = hypot(obs.obs_vel_e, obs.obs_vel_n);
                 // 상위 3개 장애물만 출력 (터미널 스크롤 방지)
-                printf("        ID(Map): [%d] | Vel_E: %6.2f, Vel_N: %6.2f | Speed: %6.2f m/s\n", 
-                        obs_count, obs.obs_vel_e, obs.obs_vel_n, speed);
+                printf("        ID(Map): [%d] | Vel_E: %6.2f, Vel_N: %6.2f | Speed: %6.2f m/s | radius: %6.2f m\n", 
+                        obs_count, obs.obs_vel_e, obs.obs_vel_n, speed, obs.radius);
+                printf("        obs_e: %6.2f, obs_n: %6.2f\n", obs.e, obs.n);
                 if (++obs_count >= 3) break;
             }
         } else {
@@ -169,11 +202,11 @@ void mainCallback (const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg) {
         publishCandidates(Candidate_vec, candidate_paths_pub); 
         publishBestPath(best_candidate, best_path_pub);
         publishBoundaries(in_boundary_vec, out_boundary_vec);
-        double check_radius = 1.5;
-        publishEgoCircle(egoPose, check_radius);
+        publishEgoOBB(ego_obb);
+        publishObstacleOBBs(obstacles);
     }
 
-    velocityControl(vel_msg, egoPose, egoVelocity);
+    velocityControl(msg, egoPose, egoVelocity);
 
     double accel_input = egoVelocity.accel_input;
     double brake_input = egoVelocity.brake_input;
@@ -220,7 +253,8 @@ int main (int argc, char** argv) {
     candidate_paths_pub = nh.advertise<visualization_msgs::MarkerArray>("viz_candidates", 1);
     best_path_pub = nh.advertise<visualization_msgs::Marker>("viz_best_candidate", 1); 
     boundary_pub = nh.advertise<visualization_msgs::Marker>("viz_boundaries", 1);
-    ego_circle_pub = nh.advertise<visualization_msgs::Marker>("/rviz/ego_circle", 1);
+    ego_obb_pub = nh.advertise<visualization_msgs::Marker>("viz_ego_obb", 1);
+    obs_obb_pub = nh.advertise<visualization_msgs::MarkerArray>("viz_obs_obb", 1);
 
     sub_obj = nh.subscribe("/target_tracks", 1, obsCallback);
     sub_gps = nh.subscribe("/gps", 1, gpsCallback);

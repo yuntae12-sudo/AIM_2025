@@ -214,7 +214,7 @@ bool LShapeClosenessFitter::fit(const std::vector<Point2D>& cluster, Rectangle& 
     if (cluster.size() < 3) return false;
 
     std::vector<Point2D> hull = findConvexHull(cluster);
-    hull = pruneHull(hull, 0.1);
+    hull = pruneHull(hull, 0.15);
     if (hull.size() < 3) hull = cluster;
 
     double a_hull = calculateArea(hull);
@@ -238,7 +238,7 @@ bool LShapeClosenessFitter::fit(const std::vector<Point2D>& cluster, Rectangle& 
     }
 
     // 2) Uniform sampling
-    for (double theta = 0.0; theta < M_PI/2.0; theta += (M_PI/180.0)) {
+    for (double theta = 0.0; theta < M_PI/2.0; theta += (2.0 * M_PI/180.0)) {
         theta_candidates.push_back(theta);
     }
 

@@ -4,7 +4,7 @@
 #include <pcl_conversions/pcl_conversions.h>
 
 
-void LidarProcess(LiDAR& st_LiDAR, double timestamp)
+void LidarProcess(LiDAR& st_LiDAR, double timestamp, double ego_x, double ego_y, double ego_heading)
 {
 
 
@@ -23,9 +23,12 @@ void LidarProcess(LiDAR& st_LiDAR, double timestamp)
     Roi(st_LiDAR);
 
     Voxel(st_LiDAR);
+    // Boundary 필터링 호출 (모든 로직은 Boundary.cpp 안에 있음)
+    // filterPointsByBoundary(st_LiDAR, ego_x, ego_y, ego_heading);
 
     Ransac(st_LiDAR);
-    // EstimateGroundPatchwork(st_LiDAR);
+    
+    filterPointsByBoundary(st_LiDAR, ego_x, ego_y, ego_heading);
     
     Clustering(st_LiDAR);
 

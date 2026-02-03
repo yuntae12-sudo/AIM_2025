@@ -237,11 +237,11 @@ if (mahal_dist < 100.0f) {  // 너무 큰 값은 제외
 
                     // 1. Length (길이): 더 큰 값이 들어오면(새로운 면 발견) 빠르게 확장
                     if (obs.f32_L > t.f32_L) t.f32_L = 0.5f * t.f32_L + 0.5f * obs.f32_L;
-                    else                     t.f32_L = 0.8f * t.f32_L + 0.2f * obs.f32_L;
+                    else                     t.f32_L = 0.4f * t.f32_L + 0.6f * obs.f32_L;
 
                     // 2. Width (폭): 위와 동일한 로직
                     if (obs.f32_W > t.f32_W) t.f32_W = 0.5f * t.f32_W + 0.5f * obs.f32_W;
-                    else                     t.f32_W = 0.8f * t.f32_W + 0.2f * obs.f32_W;
+                    else                     t.f32_W = 0.4f * t.f32_W + 0.6f * obs.f32_W;
 
                     // 3. Height (높이): 높이는 보통 안정적이지만, 일관성을 위해 동일 적용
                     if (obs.f32_H > t.f32_H) t.f32_H = 0.5f * t.f32_H + 0.5f * obs.f32_H;

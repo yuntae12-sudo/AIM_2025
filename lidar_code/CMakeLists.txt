@@ -14,6 +14,7 @@ find_package(catkin REQUIRED COMPONENTS
   rospy
   std_msgs
   message_generation
+  morai_msgs
 )
 find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED)
@@ -138,6 +139,7 @@ include_directories(
   src
   src/Global
   src/Lidar/Clustering
+  src/Lidar/Boundary
   src/Lidar/LidarProcess
   src/Lidar/Lshapefitting
   src/Lidar/FilterAndMergeClusters
@@ -181,6 +183,7 @@ endif()
 
 add_executable(lidar_node 
   src/Lidar/LidarProcess/LidarProcess.cpp 
+  src/Lidar/Boundary/Boundary.cpp
   src/Lidar/Lshapefitting/LshapeFitting.cpp
   src/Lidar/Clustering/Clustering.cpp
   src/Lidar/FilterAndMergeClusters/FilterAndMergeClusters.cpp

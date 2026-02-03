@@ -55,14 +55,14 @@ void FilterAndMergeClusters(LiDAR& st_LiDAR) {
     st_LiDAR.cluster_indices.swap(filtered_clusters);
 
     // 여기까지 하고 일단 종료 (머지는 OFF)
-    return;
+    // return;
 
 
 
     // ===============================
     // [2] (옵션) 가까운 클러스터 머지 - 지금은 사용 X
     // ===============================
-    /*
+    
     if (st_LiDAR.cluster_indices.empty()) return;
 
     size_t n = st_LiDAR.cluster_indices.size();
@@ -86,7 +86,7 @@ void FilterAndMergeClusters(LiDAR& st_LiDAR) {
             float dist_y = std::max(0.0f, std::max(boxes[i].y_min, boxes[j].y_min) - 
                                           std::min(boxes[i].y_max, boxes[j].y_max));
             
-            if (dist_x < 1.0f && dist_y < 0.6f) {
+            if (dist_x < 1.0f && dist_y < 1.5f) {
 
                 merged_indices[i].indices.reserve(
                     merged_indices[i].indices.size() + merged_indices[j].indices.size()
@@ -109,5 +109,4 @@ void FilterAndMergeClusters(LiDAR& st_LiDAR) {
     }
 
     st_LiDAR.cluster_indices = final_indices;
-    */
 }

@@ -26,6 +26,7 @@ struct egoPose_struc {double current_e, current_n, current_yaw;};
 
 struct egoPath_struc {double e, n ,u;};
 
+struct PoseHistory_struc {double e, n;};
 
 extern vector<egoPath_struc> egoPath_vec;
 
@@ -36,8 +37,10 @@ extern vector<egoPath_struc> out_boundary_vec;
 struct egoVelocity_struc {double target_velocity, accel_input, brake_input, ego_vel_e, ego_vel_n;};
 
 struct Obstacle_struct {
+    int id;
     double e;
     double n;
+    double prev_e, prev_n;
     double obs_vel_e;
     double obs_vel_n;
     double heading;
@@ -74,8 +77,8 @@ bool loadPath();
 bool loadBoundaries();
 
 void bodyframe2Enu (const egoPose_struc& egoPose, egoVelocity_struc& egoVelocity, const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg);
-void obsCordinate (const lidar_code::Track& track_data, Obstacle_struct& obstaclePose, const egoPose_struc& egoPose);
-void obsVelocity (const lidar_code::Track& track_data, Obstacle_struct& obstaclePose, const egoPose_struc& egoPose, const egoVelocity_struc& egoVelocity);
+void obsCordinate (const lidar_code::Track& track_data, Obstacle_struct& obstaclePose, const egoPose_struc& egoPose, const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg);
+void obsVelocity (const lidar_code::Track& track_data, Obstacle_struct& obstaclePose, const egoPose_struc& egoPose, const egoVelocity_struc& egoVelocity, const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg);
 
 // followPoint.hpp
 int findClosestPoint(const vector<egoPath_struc>& egoPath_vec, const egoPose_struc& egoPose);
