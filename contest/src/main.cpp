@@ -46,10 +46,13 @@ double gain_k;    // look-forward gain
 
 RobotConstants roboconsts;
 egoPose_struc egoPose;
+Obstacle_struct obstacle;
 egoVelocity_struc egoVelocity;
 vector<egoPath_struc> egoPath_vec;
 vector<egoPath_struc> in_boundary_vec;
 vector<egoPath_struc> out_boundary_vec;
+vector<Obstacle_struct> obstacles; // 선언을 상단으로 이동하여 모든 분기에서 사용 가능하게 함
+
 
 int last_closest_idx = 0;
 
@@ -145,7 +148,6 @@ void mainCallback (const morai_msgs::EgoVehicleStatus::ConstPtr& msg) {
     }
     else {
 
-        vector<Obstacle_struct> obstacles;
         for (const auto& pair : obstacles_map) {
             obstacles.push_back(pair.second);
         }
@@ -206,8 +208,8 @@ void mainCallback (const morai_msgs::EgoVehicleStatus::ConstPtr& msg) {
         publishObstacleOBBs(obstacles);
     }
 
+    // velocityControl(msg, egoPose, egoVelocity, obstacle, obstacles);
     velocityControl(msg, egoPose, egoVelocity);
-
     double accel_input = egoVelocity.accel_input;
     double brake_input = egoVelocity.brake_input;
 

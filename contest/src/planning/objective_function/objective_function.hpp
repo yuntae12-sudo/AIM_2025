@@ -99,9 +99,9 @@ extern vector<Obstacle_struct> Obstacle_vec;
 //=================== 전역 변수 선언 ===================//
 extern double L_d;
 
-const double v_min = 5.0;  // m/s
-const double v_max = 30.0 / 3.6; // m/s
-const double v_step = 1.0 / 3.6; // m/s
+const double v_min = 10.0 / 3.6;  // m/s
+const double v_max = 60.0 / 3.6; // m/s
+const double v_step = 5.0 / 3.6; // m/s
 
 // [New] 예측 시간(t_p) 샘플링 파라미터
 const double tp_min = 0.5;
@@ -120,15 +120,15 @@ const double tp_step = 0.5; // 0.5초 단위 (0.5, 1.0, 1.5, 2.0 -> 총 4가지 
 // const double W_VEL = 1.0;
 // const double W_PATH = 6.0;
 
-const double W_HEADING = 5.0;
+const double W_HEADING = 8.0;
 const double W_DIST_OBS = 3.0;
-const double W_VEL = 1.0;
-const double W_PATH = 5.0;
+const double W_VEL = 5.0;
+const double W_PATH = 10.0;
 
 
 // 차량 제원
 const double wheel_base = 3.0; // m
-const double ego_radius = 1.5;  // m (안전 마진 포함)
+const double ego_radius = 1.4;  // m (안전 마진 포함)
 
 // =================== 함수 선언 ===================//
 void generateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<egoPath_struc>& egoPath_vec, const egoPose_struc& egoPose,

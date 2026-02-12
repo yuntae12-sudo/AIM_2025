@@ -47,6 +47,8 @@ struct Obstacle_struct {
     double length;
     double width;
     double radius;
+    double obs_speed;
+    bool obs_status; // true: static, false: moving
 };
 
 //=================== 전역 변수 선언 ===================//
@@ -79,6 +81,7 @@ bool loadBoundaries();
 void bodyframe2Enu (const egoPose_struc& egoPose, egoVelocity_struc& egoVelocity, const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg);
 void obsCordinate (const lidar_code::Track& track_data, Obstacle_struct& obstaclePose, const egoPose_struc& egoPose, const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg);
 void obsVelocity (const lidar_code::Track& track_data, Obstacle_struct& obstaclePose, const egoPose_struc& egoPose, const egoVelocity_struc& egoVelocity, const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg);
+bool is_obs_static(const Obstacle_struct& obs);
 
 // followPoint.hpp
 int findClosestPoint(const vector<egoPath_struc>& egoPath_vec, const egoPose_struc& egoPose);
@@ -92,6 +95,8 @@ double getYawErr(const vector<egoPath_struc>& egoPath_vec, const egoPose_struc& 
 double getDistanceErr(const vector<egoPath_struc>& egoPath_vec, const egoPose_struc& egoPose);
 double getSteeringAngle (const vector<egoPath_struc>& egoPath_vec, const egoPose_struc& egoPose, const double L_d);
 // velocity.hpp
+// void velocityControl (const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg,
+//                       const egoPose_struc& egoPose, egoVelocity_struc& egoVelocity,
+//                       const Obstacle_struct& obstacle, const vector<Obstacle_struct>& Obstacle_vec);
 void velocityControl (const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg, const egoPose_struc& egoPose, egoVelocity_struc& egoVelocity);
-
 #endif

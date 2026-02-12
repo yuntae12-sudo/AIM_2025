@@ -26,26 +26,32 @@ void gps2Enu (const morai_msgs::GPSMessage::ConstPtr& gps_msg, egoPose_struc& eg
     double rad_lat = wgs_lat * pi / 180;
     double rad_lon = wgs_lon * pi / 180;
     double rad_alt = wgs_alt * pi / 180;
+    double h = wgs_alt;
     double k = a / sqrt(1-e*pow(sin(rad_lat), 2));
 
     // WGS->ECEF
-    double ecef_x = k * cos(rad_lat) * cos(rad_lon);
-    double ecef_y = k * cos(rad_lat) * sin(rad_lon);
-    double ecef_z = k * (1-e) * sin(rad_lat);
+    double ecef_x = (k + h) * cos(rad_lat) * cos(rad_lon);
+    double ecef_y = (k + h) * cos(rad_lat) * sin(rad_lon);
+    double ecef_z = (k * (1-e) + h) * sin(rad_lat);
 
     double ref_rad_lat = ref_lat * pi / 180;
     double ref_rad_lon = ref_lon * pi / 180;
     double ref_rad_alt = ref_alt * pi / 180;
-    double ref_k = a / sqrt(1-e*pow(sin(ref_rad_lat), 2));
 
-    double ref_ecef_x = ref_k * cos(ref_rad_lat) * cos(ref_rad_lon);
-    double ref_ecef_y = ref_k * cos(ref_rad_lat) * sin(ref_rad_lon);
-    double ref_ecef_z = ref_k * (1-e) * sin(ref_rad_lat);
+    double ref_h = ref_alt;
+    double ref_k = a / sqrt(1 - e * pow(sin(ref_rad_lat), 2));
+    double ref_ecef_x = (ref_k + ref_h) * cos(ref_rad_lat) * cos(ref_rad_lon);
+    double ref_ecef_y = (ref_k + ref_h) * cos(ref_rad_lat) * sin(ref_rad_lon);
+    double ref_ecef_z = (ref_k * (1 - e) + ref_h) * sin(ref_rad_lat);
 
 
     // ecef 좌표 enu 좌표로 변환
-    egoPose.current_e = (-sin(rad_lon)*(ecef_x - ref_ecef_x) + cos(rad_lon)*(ecef_y - ref_ecef_y));
-    egoPose.current_n = (-sin(rad_lat)*cos(rad_lon)*(ecef_x - ref_ecef_x) - sin(rad_lat)*sin(rad_lon)*(ecef_y - ref_ecef_y) + cos(rad_lat)*(ecef_z - ref_ecef_z));
+    // ref_rad_lon, ref_rad_lat (기준점 변수)를 사용해야 함
+    egoPose.current_e = (-sin(ref_rad_lon) * (ecef_x - ref_ecef_x) + cos(ref_rad_lon) * (ecef_y - ref_ecef_y));
+
+    egoPose.current_n = (-sin(ref_rad_lat) * cos(ref_rad_lon) * (ecef_x - ref_ecef_x) 
+                         - sin(ref_rad_lat) * sin(ref_rad_lon) * (ecef_y - ref_ecef_y) 
+                         + cos(ref_rad_lat) * (ecef_z - ref_ecef_z));
     double current_u = (cos(rad_lat)*cos(rad_lon)*(ecef_x - ref_ecef_x) + cos(rad_lat)*sin(rad_lon)*(ecef_y-ref_ecef_y) + sin(rad_lat)*(ecef_z-ref_ecef_z));
 }
 
@@ -65,13 +71,16 @@ void obsCordinate (const lidar_code::Track& track_data, Obstacle_struct& obstacl
     // track_msg에서 장애물 좌표 받아오기
     double obs_x = track_data.x;
     double obs_y = track_data.y;
-    // double heading = vel_msg->heading * (pi /180.0);
-
-    // double obs_body_x = obs_x * cos(heading) - obs_y * sin(heading);
-    // double obs_body_y = obs_y * cos(heading) + obs_y * sin(heading);
+    // --- [디버깅 추가] 들어오는 Ego 위치 확인 ---
+    cout << "------------------------------------" << endl;
+    cout << "[DEBUG] Code Ego Pos -> E: " << egoPose.current_e << ", N: " << egoPose.current_n << endl;
+    // cout << "[DEBUG] ROS Topic Pos -> X: " << vel_msg->position.x << ", Y: " << vel_msg->position.y << endl;
+    // ------------------------------------------
 
     obstaclePose.e = egoPose.current_e + (obs_x * cos(egoPose.current_yaw) - obs_y * sin(egoPose.current_yaw));
-    obstaclePose.n = egoPose.current_n + (obs_x * sin(egoPose.current_yaw) + obs_y * cos(egoPose.current_yaw));
+    obstaclePose.n = egoPose.current_n + (obs_x * sin(egoPose.current_yaw) + obs_y * cos(egoPose.current_yaw)) - 3.5;
+    
+    cout << "[DEBUG] Calc Obs Pos -> E: " << obstaclePose.e << ", N: " << obstaclePose.n << endl;
 }
 
 void obsVelocity (const lidar_code::Track& track_data, Obstacle_struct& obstaclePose, const egoPose_struc& egoPose, const egoVelocity_struc& egoVelocity, const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg) {
@@ -87,9 +96,16 @@ void obsVelocity (const lidar_code::Track& track_data, Obstacle_struct& obstacle
 
     // obstaclePose.obs_vel_e = egoVelocity.ego_vel_e + (obs_body_vx * cos(egoPose.current_yaw) - obs_body_vy * sin(egoPose.current_yaw));
     // obstaclePose.obs_vel_n = egoVelocity.ego_vel_n + (obs_body_vx * sin(egoPose.current_yaw) + obs_body_vy * cos(egoPose.current_yaw));
-
+    double ego_speed = vel_msg->velocity.x * 3.6;  // km/h
+    double velocity = std::sqrt(std::pow(track_data.vx, 2) + std::pow(track_data.vy, 2)) * 3.6f; // km/h
+    obstaclePose.obs_speed = velocity - ego_speed;
     obstaclePose.obs_vel_e = egoVelocity.ego_vel_e + (obs_vx * cos(egoPose.current_yaw) - obs_vy * sin(egoPose.current_yaw));
     obstaclePose.obs_vel_n = egoVelocity.ego_vel_n + (obs_vx * sin(egoPose.current_yaw) + obs_vy * cos(egoPose.current_yaw));
+}
+
+bool is_obs_static(const Obstacle_struct& obs) {  // obs_speed가 speed_threshold보다 작으면 정지한 것으로 간주
+    double speed_threshold = 10.0 * 3.6; // km/h
+    return obs.obs_speed < speed_threshold;
 }
 
 void yawTf (const sensor_msgs::Imu::ConstPtr& imu_msg, egoPose_struc& egoPose) {

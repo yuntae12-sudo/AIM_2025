@@ -86,6 +86,7 @@ add_executable(main
 )
 add_dependencies(main
   lidar_code_generate_messages_cpp
+  morai_msgs_generate_messages_cpp
   ${catkin_EXPORTED_TARGETS}
 )
 
@@ -101,4 +102,8 @@ target_link_libraries(path_maker
 )
 
 ## 의존성 설정 (메시지 생성 순서 보장)
-add_dependencies(path_maker ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(path_maker
+  ${${PROJECT_NAME}_EXPORTED_TARGETS}
+  ${catkin_EXPORTED_TARGETS}
+  morai_msgs_generate_messages_cpp
+)

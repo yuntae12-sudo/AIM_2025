@@ -59,23 +59,29 @@ double normalize_angle(double angle) {
 OBB GetEgoOBB(const morai_msgs::GPSMessage::ConstPtr& gps_msg, egoPose_struc& egoPose, RobotConstants& ego_spec) {
     OBB obb;
 
-    double dist_to_center_axel = (ego_spec.length * 0.5) - ego_spec.f_overhang;
+    // [수정 1] 후륜 축(Rear Axle)에서 기하학적 중심(Geometric Center)까지의 거리 계산
+    // 만약 ego_spec에 rear_overhang이 없다면: length - wheelbase - f_overhang 으로 계산 가능
+    double dist_rear_to_geo_center = (ego_spec.length * 0.5) - ego_spec.r_overhang;
 
-    double center_e = egoPose.current_e - dist_to_center_axel * cos(egoPose.current_yaw);
-    double center_n = egoPose.current_n - dist_to_center_axel * sin(egoPose.current_yaw);
+    // [수정 2] 후륜 기준이므로 중심은 차량 진행 방향(앞쪽)에 있음 -> 더하기(+) 연산
+    // egoPose가 Rear Axle이라고 가정
+    double center_e = egoPose.current_e + dist_rear_to_geo_center * cos(egoPose.current_yaw);
+    double center_n = egoPose.current_n + dist_rear_to_geo_center * sin(egoPose.current_yaw);
 
     double half_l = ego_spec.length * 0.5;
     double half_w = ego_spec.width * 0.5;
 
-    // Local coordinates: FL, FR, RR, RL
+    // Local coordinates: FL, FR, RR, RL (순서는 유지)
     double local_e[4] = { half_l,  half_l, -half_l, -half_l };
     double local_y[4] = { half_w, -half_w, -half_w,  half_w };
 
-    // 5. 세계 좌표계(ENU)로 변환 (Rotation & Translation)
     double cos_y = cos(egoPose.current_yaw);
     double sin_y = sin(egoPose.current_yaw);
 
     for (int i = 0; i < 4; ++i) {
+        // 회전 변환 (2D Rotation Matrix)
+        // x' = x*cos - y*sin
+        // y' = x*sin + y*cos
         obb.vertices[i].e = center_e + (local_e[i] * cos_y - local_y[i] * sin_y);
         obb.vertices[i].n = center_n + (local_e[i] * sin_y + local_y[i] * cos_y);
     }
@@ -289,7 +295,7 @@ void generateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<eg
                 candidate.angular_velocity = candidate_w;
                 
                 // 예측 경로 생성
-                calculatePath(candidate, egoPose);
+                // calculatePath(candidate, egoPose);
                 
                 Candidate_vec.push_back(candidate);
             }
@@ -297,199 +303,152 @@ void generateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<eg
     }
 }
 
+// ... (이전 include 및 전역변수들은 그대로 유지) ...
+
 void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Obstacle_struct>& Obstacle_vec,
                         const vector<egoPath_struc>& egoPath_vec, const egoPose_struc& egoPose, const egoVelocity_struc& egoVelocity_struc,
                         const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg,
                         int search_start_idx) {
-    double sum_score_heading = 0.0;
-    double sum_score_dist_obs = 0.0;
-    double sum_score_vel = 0.0;
-    double sum_score_dist_path = 0.0;
+
+    // [1] 절대 평가를 위한 물리적 한계값 정의 (Tuning Points)
+    // 이 값들을 넘어서면 해당 항목 점수는 0점이 됩니다.
+    const double LIMIT_PATH_ERR  = 3.0;        // 경로에서 3m 이상 벗어나면 0점 // 3.0 -> 5.0
+    const double LIMIT_HEADING   = M_PI / 2.0; // 90도(1.57rad) 이상 틀어지면 0점
+    const double LIMIT_VEL_ERR   = 20.0 / 3.6; // 목표 속도와 20km/h 이상 차이나면 0점
+    const double LIMIT_DIST_OBS  = 100.0;       // 장애물이 20m보다 멀면 만점(1.0)
+
+    // 목표 속도 설정
+    // const double goal_v_noraml = 30.0 / 3.6;
+    bool coner_flag = isCorner(egoPath_vec, egoPose, findClosestPoint(egoPath_vec, egoPose));
+    double target_v = 0.0;
+    if (coner_flag) {
+        target_v = 30.0 / 3.6; // m/s
+    } 
+    else  {
+        target_v = 50.0 / 3.6; // m/s
+    }
+
+    
+    // 장애물 유무 판단 (간단한 로직)
+    //bool obstacle_detected = false;
+    //for(const auto& obs : Obstacle_vec) {
+    //    double d = hypot(obs.e - egoPose.current_e, obs.n - egoPose.current_n);
+    //    if(d < 30.0) { // 30m 내에 장애물 있으면 감속 모드
+    //        obstacle_detected = true;
+    //        break;
+    //    }
+    //}
+    // double target_v = obstacle_detected ? goal_v_obs : goal_v_normal;
 
     double l_rear = wheel_base * 0.5; // 후륜까지의 거리
-    const double epsilon = 1e-6; // 작은 값으로 나누기 방지
-    const double goal_v_none = 30.0 / 3.6; // 속도 제한값 (m/s)
-    const double goal_v_obs = 20.0 / 3.6;  // 장애물 있을 시 mps
-    double current_v = vel_msg->velocity.x;
-    bool is_dynamic = false;
-
-    double max_dist_score = -1e9, min_dist_score = 1e9;
-    double max_vel_score = -1e9, min_vel_score = 1e9;
-    double max_head_score = -1e9, min_head_score = 1e9; 
-    double max_path_score = -1e9, min_path_score = 1e9;
-    double max_obs_vel = -1e9, min_obs_vel = 1e9;
 
     // ============================================================
-    // [Loop 1] 시뮬레이션 & Raw Score 계산
+    // [Loop] 시뮬레이션 & 절대 점수 계산 (One Pass)
     // ============================================================
-    // 점수 계산 로직 구현 (예: heading, 거리, 속도 등)
     for (Candidate_struct& candidate : Candidate_vec) {
+        
         // --- A. 미래 경로 예측 (Trajectory Prediction) ---
-        // 현재 위치에서 시작
         double future_e = egoPose.current_e;
         double future_n = egoPose.current_n;
         double future_yaw = egoPose.current_yaw;
-        double ego_vel_e = egoVelocity_struc.ego_vel_e;
-        double ego_vel_n = egoVelocity_struc.ego_vel_n;
+        
+        double min_obs_dist = 100.0; // 초기값 (충분히 큰 값)
+        double dt = 0.2;             // 시뮬레이션 dt (정밀도 필요시 조절)
+        double obs_radius = 0.5;    // 장애물 반경 (고정값, 필요시 Obstacle_struct에 추가)
 
-        double min_obs_dist = 100.0; // L_max: 장애물 없을 때 초기값
-        double dt = 1.2;
-
+        // 시뮬레이션 루프
         for (double t = 0; t < candidate.t_p; t += dt) {
-            // 1. 내 차 이동 (Bicycle Model)
+            // 1. 내 차 이동 (Kinematic Bicycle Model)
             double beta = atan((l_rear / wheel_base) * tan(candidate.steer_angle));
-
-            future_e += candidate.v * cos(future_yaw + beta) * dt;
-            future_n += candidate.v * sin(future_yaw + beta) * dt;
+            future_e   += candidate.v * cos(future_yaw + beta) * dt;
+            future_n   += candidate.v * sin(future_yaw + beta) * dt;
             future_yaw += (candidate.v * sin(beta) / l_rear) * dt;
             
-
-            // 1. 장애물 충돌 체크 (정적, 동적 통합)
+            // 2. 장애물 거리 체크
             for (const Obstacle_struct& obs : Obstacle_vec) {
-                
-                // 정적 장애물은 obs_vel_e, obs_vel_n이 0
-                // double obs_future_e = obs.e + (obs.obs_vel_e * t);
-                // double obs_future_n = obs.n + (obs.obs_vel_n * t);
+                // 간단화를 위해 정적 장애물 위치 사용 (동적 필요시 obs_vel 고려하여 t만큼 이동)
+                // 내 차와 장애물 간의 유클리드 거리 - (장애물반경 + 내차반경)
+                double dist = hypot(future_e - obs.e, future_n - obs.n) - obs_radius - ego_radius;
+                ROS_INFO("velocityControl: obstacle_detected true (obs id=%d, dist=%.2f)", obs.id, dist);
 
-                double dist = 0.0;
-                double obs_radius = 1.0;
-
-                double diff_e = obs.e - obs.prev_e;
-                double diff_n = obs.n - obs.prev_n;
-
-                if(abs(diff_e) > 1.5 && abs(diff_n) > 1.5) {
-                    is_dynamic = true;
-                } else {
-                    is_dynamic = false;
+                if (dist < min_obs_dist) {
+                    min_obs_dist = dist;
                 }
-
-                double obs_future_e = obs.e;
-                double obs_future_n = obs.n;
-                dist = hypot(future_e - obs_future_e, future_n - obs_future_n) - obs_radius - ego_radius;
-
-                // 거리 계산: (내 미래 위치) <-> (장애물 미래 위치) - (장애물 반지름)
-                // 필요하다면 여기에 내 차의 반지름(혹은 안전마진)도 추가로 빼주면 더 안전합니다.
-                // dist = hypot(future_e - obs_future_e, future_n - obs_future_n) - obs_radius - ego_radius;
-
-                // 정적일 때
-                if(is_dynamic) {
-                    // 동적일 때
-                    if(dist < 6.0) {
-                        candidate.total_score = -999;
-                        break;
-                    } else if (dist >= 6.0) {
-                        if(dist < min_obs_dist) {
-                            min_obs_dist = dist;
-                        }
-                    }
-                } else {
-                    if(dist < min_obs_dist) {
-                        min_obs_dist = dist;
-                    }
-                }    
             }
-        }       
+        }
 
-        // 1. 충돌 판정 및 점수 기록
-        if (min_obs_dist < 1.0) {
-            candidate.total_score = -999.0; // 충돌 (즉시 탈락)
+        // 충돌 체크 (Hard Constraint)
+        if (min_obs_dist < 0.5) { // 0.5m 이내면 충돌로 간주
+            candidate.total_score = -999.0;
             continue; 
         }
-        candidate.score_dist_obs = min_obs_dist;
 
-        if (candidate.score_dist_obs > max_dist_score) {
-            max_dist_score = candidate.score_dist_obs;
-        }
-        if (candidate.score_dist_obs < min_dist_score) {
-            min_dist_score = candidate.score_dist_obs;
-        }
+        // ============================================================
+        // [Score Calculation] 절대 평가 (Normalization 0.0 ~ 1.0)
+        // ============================================================
 
-        // 2. 속도 점수 기록
-        // 수식: velocity(v, w) = v_i - v_actual
-        // v_i: cand.v (후보 속도)
-        // v_actual: current_v (현재 속도)
-        // 의미: 현재 속도보다 더 빠를수록(가속할수록), 혹은 절대적으로 빠를수록 점수가 높음
-
-        candidate.score_vel = -fabs(goal_v_none -candidate.v);
-
-        if (candidate.score_vel > max_vel_score) {
-            max_vel_score = candidate.score_vel;
-        }
-        if (candidate.score_vel < min_vel_score) {
-            min_vel_score = candidate.score_vel;
+        // 1. 장애물 점수 (Obstacle Score)
+        // 멀수록 좋음. LIMIT_DIST_OBS 이상이면 1.0, 가까우면 0.0으로 선형 감소
+        double norm_obs = 0.0;
+        if (min_obs_dist >= LIMIT_DIST_OBS) {
+            norm_obs = 1.0;
+        } else if (min_obs_dist <= 0.0) {
+            norm_obs = 0.0;
+        } else {
+            norm_obs = min_obs_dist / LIMIT_DIST_OBS;
         }
 
-        // 3. 헤딩 점수 기록
-        double L_d = candidate.v * candidate.t_p;
-        L_d = std::min(L_d, 10.0); // 10m 이상 멀리 보지 않음
-        if (L_d < 3.0) L_d = 3.0; // 너무 가까운 것도 방지
+        
+        // 2. 속도 점수 (Velocity Score)
+        // 목표 속도와의 오차가 작을수록 좋음. LIMIT_VEL_ERR 이상 차이나면 0점
+        double vel_err = fabs(target_v - candidate.v);
+        double norm_vel = 1.0 - (vel_err / LIMIT_VEL_ERR);
+        if (norm_vel < 0.0) norm_vel = 0.0; // Clamping
 
-        int look_ahead_idx = findWaypoint(egoPath_vec, egoPose, L_d);
-        int next_idx = look_ahead_idx + 1;
-        double de = egoPath_vec[next_idx].e - egoPath_vec[look_ahead_idx].e;
-        double dn = egoPath_vec[next_idx].n - egoPath_vec[look_ahead_idx].n;
+        // 3. 헤딩 점수 (Heading Score)
+        // Lookahead 지점의 경로 방향과 내 차의 방향 오차 (작을수록 좋음)
+        double L_d_val = std::max(3.0, std::min(candidate.v * candidate.t_p, 15.0));
+        int look_ahead_idx = findWaypoint(egoPath_vec, egoPose, L_d_val);
+        
+        if (look_ahead_idx >= egoPath_vec.size() - 1) look_ahead_idx = egoPath_vec.size() - 2;
 
-        double waypoint_heading_angle = atan2(dn, de);
-        double theta = fabs(normalize_angle(waypoint_heading_angle - future_yaw));
-        if (hypot(de, dn) < 1e-6) theta = 0.0;
+        double path_dx = egoPath_vec[look_ahead_idx+5].e - egoPath_vec[look_ahead_idx].e;
+        double path_dy = egoPath_vec[look_ahead_idx+5].n - egoPath_vec[look_ahead_idx].n;
+        double path_heading = atan2(path_dy, path_dx);
 
-        candidate.score_heading = M_PI - theta;
+        double heading_err = fabs(normalize_angle(path_heading - future_yaw));
+        double norm_head = 1.0 - (heading_err / LIMIT_HEADING);
+        if (norm_head < 0.0) norm_head = 0.0;
 
-        if (candidate.score_heading > max_head_score) {
-            max_head_score = candidate.score_heading;
-        }
-        if (candidate.score_heading < min_head_score) {
-            min_head_score = candidate.score_heading;
-        }
-
-        // 4. 경로추종 오차 점수 기록
+        // 4. 경로 추종 점수 (Path Score)
+        // 경로와의 최단 거리 오차 (작을수록 좋음)
         double min_path_dist = 1e9;
+        int search_end = std::min((int)egoPath_vec.size(), search_start_idx + 400);
         
-        // 최적화: 전체를 다 뒤지면 느리니까, 현재 인덱스부터 앞쪽 50개 정도만 검색
-        int search_end = std::min((int)egoPath_vec.size(), search_start_idx + 100);
-        
+        // 간단한 탐색 (너무 멀면 LIMIT 처리되므로 적당히 찾음)
         for (int i = search_start_idx; i < search_end; ++i) {
             double d = hypot(future_e - egoPath_vec[i].e, future_n - egoPath_vec[i].n);
-            if (d < min_path_dist) {
-                min_path_dist = d;
-            }
+            if (d < min_path_dist) min_path_dist = d;
         }
-        // 점수: 오차가 작을수록 커야 하므로 (-) 부호를 붙임
-        candidate.score_dist_path = -min_path_dist;
 
-        if (candidate.score_dist_path > max_path_score) max_path_score = candidate.score_dist_path;
-        if (candidate.score_dist_path < min_path_score) min_path_score = candidate.score_dist_path;
-    }
-    // ============================================================
-    // [Loop 2] Min, Max 정규화 & 가중치 합산
-    // ============================================================
-    
-    double range_dist = max_dist_score - min_dist_score;
-    double range_vel  = max_vel_score - min_vel_score;
-    double range_head = max_head_score - min_head_score;
-    double range_path = max_path_score - min_path_score;
+        double norm_path = 1.0 - (min_path_dist / LIMIT_PATH_ERR);
+        if (norm_path < 0.0) norm_path = 0.0;
 
-    if (range_dist < epsilon) range_dist = 1.0;
-    if (range_vel < epsilon)  range_vel  = 1.0;
-    if (range_head < epsilon) range_head = 1.0;
-    if (range_path < epsilon) range_path = 1.0;
-
-    for (Candidate_struct& candidate : Candidate_vec) {
+        // ============================================================
+        // [Total Score] 가중치 합산
+        // ============================================================
+        // 각 항목이 0.0 ~ 1.0 사이로 완벽히 정규화되었으므로 단순히 더하면 됨
         
-        if (candidate.total_score <= -900.0) continue;
+        candidate.total_score = (W_HEADING  * norm_head) + 
+                                (W_VEL      * norm_vel) + 
+                                (W_DIST_OBS * norm_obs) + 
+                                (W_PATH     * norm_path);
 
-        // 1. 정규화 (Normalization: 0.0 ~ 1.0)
-        double norm_dist = (candidate.score_dist_obs - min_dist_score) / range_dist;
-        double norm_vel  = (candidate.score_vel      - min_vel_score)  / range_vel;
-        double norm_head = (candidate.score_heading  - min_head_score) / range_head;
-        double norm_path = (candidate.score_dist_path- min_path_score) / range_path;
-
-        // 2. 가중치 합산 (Weighted Sum)
-        // W_PATH 상수를 추가해서 가중치를 조절하세요 (예: 0.5)
-        candidate.total_score = (W_HEADING    * norm_head) + 
-                           (W_VEL     * norm_vel)  +
-                           (W_DIST_OBS * norm_dist) +
-                           (W_PATH    * norm_path);
+        // 디버깅용으로 개별 점수 저장 (필요시 사용)
+        candidate.score_heading   = norm_head;
+        candidate.score_vel       = norm_vel;
+        candidate.score_dist_obs  = norm_obs;
+        candidate.score_dist_path = norm_path;
     }
 }
 
