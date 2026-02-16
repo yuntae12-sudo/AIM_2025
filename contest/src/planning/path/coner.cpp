@@ -23,8 +23,6 @@ bool isCorner(const vector<egoPath_struc>& egoPath_vec, const egoPose_struc& ego
     // 4. 보정용 디버깅 출력 (라디안을 도(degree)로 바꿔서 출력)
     double diff_deg = diff * (180.0 / M_PI);
     
-    std::cout << "[Corner Debug] Angle Diff: " << diff_deg << " deg" << std::endl;
-
     // 5. Threshold
     double threshold_deg = 10.0; 
     double threshold_rad = threshold_deg * (M_PI / 180.0);

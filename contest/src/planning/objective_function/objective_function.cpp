@@ -6,6 +6,7 @@ using namespace std;
 vector<Candidate_struct> Candidate_vec;
 vector<Obstacle_struct> Obstacle_vec;
 
+
 VectorSpace GetVelocityVectorSpace(
     RobotState& state,
     const RobotConstants& consts,
@@ -222,7 +223,7 @@ void generateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<eg
     // 조향 샘플링 설정
     int num_steer_samples = 41; 
     
-    double max_steer_range = 1.0; // 좌우 최대 라디안
+    double max_steer_range = 0.45; // 좌우 최대 라디안
     double steer_step = (num_steer_samples > 1) ? (max_steer_range * 2.0) / (num_steer_samples - 1) : 0;
 
     double base_steer = 0.0;
@@ -269,22 +270,21 @@ void generateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<eg
 
                 // // 장애물 구조체 안에 장애물이 있으면 바운더리 넘어가는 후보경로 삭제하는 로직
                 //if(!Obstacle_vec.empty()) {
-                    double future_e = egoPose.current_e;
-                    double future_n = egoPose.current_n;
-                    double future_yaw = egoPose.current_yaw;
-                    double dt = 0.2;
-                    for (double t = 0; t < tp; t += dt) {
-                        double beta = atan((l_rear / wheel_base) * tan(candidate_steer));
-                        future_e += v * cos(future_yaw + beta) * dt;
-                        future_n += v * sin(future_yaw + beta) * dt;
-                        future_yaw += (v * sin(beta) / l_rear) * dt;
-                        bool out_left = BoundaryCheck(future_e, future_n, in_boundary_vec, true);
-                        bool out_right = BoundaryCheck(future_e, future_n, out_boundary_vec, false);
-
-                        if (out_left || out_right) {
-                            is_safe_path = false;
-                        }
+                double future_e = egoPose.current_e;
+                double future_n = egoPose.current_n;
+                double future_yaw = egoPose.current_yaw;
+                double dt = 0.2;
+                for (double t = 0; t < tp; t += dt) {
+                    double beta = atan((l_rear / wheel_base) * tan(candidate_steer));
+                    future_e += v * cos(future_yaw + beta) * dt;
+                    future_n += v * sin(future_yaw + beta) * dt;
+                    future_yaw += (v * sin(beta) / l_rear) * dt;
+                    bool out_left = BoundaryCheck(future_e, future_n, in_boundary_vec, true);
+                    bool out_right = BoundaryCheck(future_e, future_n, out_boundary_vec, false);
+                    if (out_left || out_right) {
+                        is_safe_path = false;
                     }
+                }
                 //}
                  if (!is_safe_path) continue;
 
@@ -295,7 +295,7 @@ void generateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<eg
                 candidate.angular_velocity = candidate_w;
                 
                 // 예측 경로 생성
-                // calculatePath(candidate, egoPose);
+                calculatePath(candidate, egoPose);
                 
                 Candidate_vec.push_back(candidate);
             }
@@ -312,24 +312,24 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
 
     // [1] 절대 평가를 위한 물리적 한계값 정의 (Tuning Points)
     // 이 값들을 넘어서면 해당 항목 점수는 0점이 됩니다.
-    const double LIMIT_PATH_ERR  = 3.0;        // 경로에서 3m 이상 벗어나면 0점 // 3.0 -> 5.0
-    const double LIMIT_HEADING   = M_PI / 2.0; // 90도(1.57rad) 이상 틀어지면 0점
-    const double LIMIT_VEL_ERR   = 20.0 / 3.6; // 목표 속도와 20km/h 이상 차이나면 0점
-    const double LIMIT_DIST_OBS  = 100.0;       // 장애물이 20m보다 멀면 만점(1.0)
+    const double LIMIT_PATH_ERR  = 8.0;        // 경로에서 3m 이상 벗어나면 0점 // 3.0 -> 5.0
+    const double LIMIT_HEADING   = M_PI / 3.0; // 90도(1.57rad) 이상 틀어지면 0점
+    const double LIMIT_VEL_ERR   = 5.0 / 3.6; // 목표 속도와 20km/h 이상 차이나면 0점
+    const double LIMIT_DIST_OBS  = 5.0;       // 장애물이 20m보다 멀면 만점(1.0)
 
     // 목표 속도 설정
     // const double goal_v_noraml = 30.0 / 3.6;
     bool coner_flag = isCorner(egoPath_vec, egoPose, findClosestPoint(egoPath_vec, egoPose));
-    double target_v = 0.0;
-    if (coner_flag) {
-        target_v = 30.0 / 3.6; // m/s
-    } 
-    else  {
-        target_v = 50.0 / 3.6; // m/s
-    }
+    double target_v = 10.0 / 3.6; // m/s
+    // if (coner_flag) {
+    //     target_v = 30.0 / 3.6; // m/s
+    // } 
+    // else  {
+    //     target_v = 50.0 / 3.6; // m/s
+    // }
 
     
-    // 장애물 유무 판단 (간단한 로직)
+    // 장애물 유무 판단
     //bool obstacle_detected = false;
     //for(const auto& obs : Obstacle_vec) {
     //    double d = hypot(obs.e - egoPose.current_e, obs.n - egoPose.current_n);
@@ -354,7 +354,7 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
         
         double min_obs_dist = 100.0; // 초기값 (충분히 큰 값)
         double dt = 0.2;             // 시뮬레이션 dt (정밀도 필요시 조절)
-        double obs_radius = 0.5;    // 장애물 반경 (고정값, 필요시 Obstacle_struct에 추가)
+        double obs_radius = 0.3;    // 장애물 반경 (고정값, 필요시 Obstacle_struct에 추가)
 
         // 시뮬레이션 루프
         for (double t = 0; t < candidate.t_p; t += dt) {
@@ -369,7 +369,7 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
                 // 간단화를 위해 정적 장애물 위치 사용 (동적 필요시 obs_vel 고려하여 t만큼 이동)
                 // 내 차와 장애물 간의 유클리드 거리 - (장애물반경 + 내차반경)
                 double dist = hypot(future_e - obs.e, future_n - obs.n) - obs_radius - ego_radius;
-                ROS_INFO("velocityControl: obstacle_detected true (obs id=%d, dist=%.2f)", obs.id, dist);
+                // ROS_INFO("velocityControl: obstacle_detected true (obs id=%d, dist=%.2f)", obs.id, dist);
 
                 if (dist < min_obs_dist) {
                     min_obs_dist = dist;
@@ -378,7 +378,7 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
         }
 
         // 충돌 체크 (Hard Constraint)
-        if (min_obs_dist < 0.5) { // 0.5m 이내면 충돌로 간주
+        if (min_obs_dist < 0.3) { // 0.5m 이내면 충돌로 간주
             candidate.total_score = -999.0;
             continue; 
         }
@@ -412,8 +412,8 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
         
         if (look_ahead_idx >= egoPath_vec.size() - 1) look_ahead_idx = egoPath_vec.size() - 2;
 
-        double path_dx = egoPath_vec[look_ahead_idx+5].e - egoPath_vec[look_ahead_idx].e;
-        double path_dy = egoPath_vec[look_ahead_idx+5].n - egoPath_vec[look_ahead_idx].n;
+        double path_dx = egoPath_vec[look_ahead_idx+3].e - egoPath_vec[look_ahead_idx].e;
+        double path_dy = egoPath_vec[look_ahead_idx+3].n - egoPath_vec[look_ahead_idx].n;
         double path_heading = atan2(path_dy, path_dx);
 
         double heading_err = fabs(normalize_angle(path_heading - future_yaw));

@@ -46,13 +46,10 @@ double gain_k;    // look-forward gain
 
 RobotConstants roboconsts;
 egoPose_struc egoPose;
-Obstacle_struct obstacle;
 egoVelocity_struc egoVelocity;
 vector<egoPath_struc> egoPath_vec;
 vector<egoPath_struc> in_boundary_vec;
 vector<egoPath_struc> out_boundary_vec;
-vector<Obstacle_struct> obstacles; // 선언을 상단으로 이동하여 모든 분기에서 사용 가능하게 함
-
 
 int last_closest_idx = 0;
 
@@ -148,6 +145,7 @@ void mainCallback (const morai_msgs::EgoVehicleStatus::ConstPtr& msg) {
     }
     else {
 
+        vector<Obstacle_struct> obstacles;
         for (const auto& pair : obstacles_map) {
             obstacles.push_back(pair.second);
         }
@@ -175,30 +173,44 @@ void mainCallback (const morai_msgs::EgoVehicleStatus::ConstPtr& msg) {
         steering_angle = best_candidate.steer_angle;
 
         // [디버그 출력] 한 화면에 다 보이게 출력 (ROS_INFO_THROTTLE로 0.1초마다 출력 추천)
-        printf("\n[DEBUG] Pos: (%.2f, %.2f) | Yaw: %.2f deg\n", egoPose.current_e, egoPose.current_n, egoPose.current_yaw * 180/M_PI);
-        if (!egoPath_vec.empty()) {
-            printf("        Idx: Close[%d], Target[%d] | Path_Pos: (%.2f, %.2f)\n", 
-                closest_idx, target_idx, egoPath_vec[closest_idx].e, egoPath_vec[closest_idx].n);
-        } else {
-            printf("        Idx: Close[%d], Target[%d] | Path empty\n", closest_idx, target_idx);
-        }
-        printf("        Err: Dist[%.2f m], Yaw[%.2f deg] | Steer: %.2f deg\n", 
-                dist_err, yaw_err * 180/M_PI, steering_angle * 180/M_PI);
-        // [추가된 장애물 속도 출력 로직]
-        if (!obstacles.empty()) {
-            printf(" [OBSTACLE SPEED INFO]\n");
-            int obs_count = 0;
-            for (const auto& obs : obstacles) {
-                double speed = hypot(obs.obs_vel_e, obs.obs_vel_n);
-                // 상위 3개 장애물만 출력 (터미널 스크롤 방지)
-                printf("        ID(Map): [%d] | Vel_E: %6.2f, Vel_N: %6.2f | Speed: %6.2f m/s | radius: %6.2f m\n", 
-                        obs_count, obs.obs_vel_e, obs.obs_vel_n, speed, obs.radius);
-                printf("        obs_e: %6.2f, obs_n: %6.2f\n", obs.e, obs.n);
-                if (++obs_count >= 3) break;
-            }
-        } else {
-            printf(" [OBSTACLE SPEED INFO] No obstacles detected.\n");
-        }
+        // printf("\n[DEBUG] Pos: (%.2f, %.2f) | Yaw: %.2f deg\n", egoPose.current_e, egoPose.current_n, egoPose.current_yaw * 180/M_PI);
+        // if (!egoPath_vec.empty()) {
+        //     printf("        Idx: Close[%d], Target[%d] | Path_Pos: (%.2f, %.2f)\n", 
+        //         closest_idx, target_idx, egoPath_vec[closest_idx].e, egoPath_vec[closest_idx].n);
+        // } else {
+        //     printf("        Idx: Close[%d], Target[%d] | Path empty\n", closest_idx, target_idx);
+        // }
+        // printf("        Err: Dist[%.2f m], Yaw[%.2f deg] | Steer: %.2f deg\n", 
+        //         dist_err, yaw_err * 180/M_PI, steering_angle * 180/M_PI);
+        // // [추가된 장애물 속도 출력 로직]
+        // if (!obstacles.empty()) {
+        //     printf(" [OBSTACLE SPEED INFO]\n");
+        //     int obs_count = 0;
+        //     for (const auto& obs : obstacles) {
+        //         double speed = hypot(obs.obs_vel_e, obs.obs_vel_n);
+        //         // 상위 3개 장애물만 출력 (터미널 스크롤 방지)
+        //         printf("        ID(Map): [%d] | Vel_E: %6.2f, Vel_N: %6.2f | Speed: %6.2f m/s | radius: %6.2f m\n", 
+        //                 obs_count, obs.obs_vel_e, obs.obs_vel_n, speed, obs.radius);
+        //         printf("        obs_e: %6.2f, obs_n: %6.2f\n", obs.e, obs.n);
+        //         if (++obs_count >= 3) break;
+        //     }
+        // } else {
+        //     printf(" [OBSTACLE SPEED INFO] No obstacles detected.\n");
+        // }
+
+        cout << fixed;
+        cout.precision(4);
+        cout << "============================================" << endl;
+        cout << "[Best Candidate Score Detail]" << endl;
+        cout << " Total Score   : " << best_candidate.total_score << endl;
+        cout << " 1. Obs Term   : " << best_candidate.score_dist_obs << endl;
+        cout << " 2. Vel Term   : " << best_candidate.score_vel << endl;
+        cout << " 3. Head Term  : " << best_candidate.score_heading << endl;
+        cout << " 4. Path Term  : " << best_candidate.score_dist_path << endl;
+        cout << "--------------------------------------------" << endl;
+        cout << " Selected V    : " << best_candidate.v << " m/s" << endl;
+        cout << " Selected Steer: " << best_candidate.steer_angle << " rad" << endl;
+        cout << "============================================" << endl;
             // 시각화 호출
         publishWaypoints(egoPath_vec);
         publishCandidates(Candidate_vec, candidate_paths_pub); 
@@ -208,8 +220,8 @@ void mainCallback (const morai_msgs::EgoVehicleStatus::ConstPtr& msg) {
         publishObstacleOBBs(obstacles);
     }
 
-    // velocityControl(msg, egoPose, egoVelocity, obstacle, obstacles);
     velocityControl(msg, egoPose, egoVelocity);
+
     double accel_input = egoVelocity.accel_input;
     double brake_input = egoVelocity.brake_input;
 

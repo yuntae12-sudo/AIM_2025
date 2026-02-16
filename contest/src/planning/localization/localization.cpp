@@ -71,16 +71,16 @@ void obsCordinate (const lidar_code::Track& track_data, Obstacle_struct& obstacl
     // track_msg에서 장애물 좌표 받아오기
     double obs_x = track_data.x;
     double obs_y = track_data.y;
-    // --- [디버깅 추가] 들어오는 Ego 위치 확인 ---
-    cout << "------------------------------------" << endl;
-    cout << "[DEBUG] Code Ego Pos -> E: " << egoPose.current_e << ", N: " << egoPose.current_n << endl;
+    // // --- [디버깅 추가] 들어오는 Ego 위치 확인 ---
+    // cout << "------------------------------------" << endl;
+    // cout << "[DEBUG] Code Ego Pos -> E: " << egoPose.current_e << ", N: " << egoPose.current_n << endl;
     // cout << "[DEBUG] ROS Topic Pos -> X: " << vel_msg->position.x << ", Y: " << vel_msg->position.y << endl;
     // ------------------------------------------
 
     obstaclePose.e = egoPose.current_e + (obs_x * cos(egoPose.current_yaw) - obs_y * sin(egoPose.current_yaw));
     obstaclePose.n = egoPose.current_n + (obs_x * sin(egoPose.current_yaw) + obs_y * cos(egoPose.current_yaw)) - 3.5;
     
-    cout << "[DEBUG] Calc Obs Pos -> E: " << obstaclePose.e << ", N: " << obstaclePose.n << endl;
+    // cout << "[DEBUG] Calc Obs Pos -> E: " << obstaclePose.e << ", N: " << obstaclePose.n << endl;
 }
 
 void obsVelocity (const lidar_code::Track& track_data, Obstacle_struct& obstaclePose, const egoPose_struc& egoPose, const egoVelocity_struc& egoVelocity, const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg) {
