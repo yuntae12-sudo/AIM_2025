@@ -134,6 +134,7 @@ void mainCallback (const morai_msgs::EgoVehicleStatus::ConstPtr& msg) {
 
     bodyframe2Enu(egoPose, egoVelocity, msg);
     int current_path_idx = getCurrentIndex(egoPath_vec, egoPose, last_closest_idx);
+    
     last_closest_idx = current_path_idx; // 다음을 위해 저장
 
     double steering_angle  = 0.0;
@@ -150,8 +151,18 @@ void mainCallback (const morai_msgs::EgoVehicleStatus::ConstPtr& msg) {
             obstacles.push_back(pair.second);
         }
 
-        generateCandidates(Candidate_vec, egoPath_vec, egoPose, msg, roboconsts, obstacles, in_boundary_vec, out_boundary_vec);
-        evaluateCandidates(Candidate_vec, obstacles, egoPath_vec, egoPose, egoVelocity, msg, current_path_idx);
+        // Mode selection and sampling/weight preparation
+        mode_struct mode;
+        sampling_struct sampling;
+        Weight_struct weight;
+        modeCheck(mode, obstacles, egoPose);
+        // only linear or coner modes supported here
+        linearMode(mode, sampling, weight);
+        conerMode(mode, sampling, weight);
+        staticObstacleMode(mode, sampling, weight);
+        
+        generateCandidates(Candidate_vec, egoPath_vec, egoPose, msg, roboconsts, obstacles, in_boundary_vec, out_boundary_vec, sampling, weight);
+        evaluateCandidates(Candidate_vec, obstacles, egoPath_vec, egoPose, egoVelocity, msg, sampling, weight, current_path_idx);
 
         Candidate_struct best_candidate = selectBestCandidate(Candidate_vec);
 

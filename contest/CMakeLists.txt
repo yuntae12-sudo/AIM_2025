@@ -77,6 +77,7 @@ add_executable(main
   src/main.cpp
   src/planning/localization/localization.cpp
   src/planning/objective_function/objective_function.cpp
+  src/planning/objective_function/mode.cpp
   src/planning/path/coner.cpp
   src/planning/path/followPoint.cpp
   src/control/steering/steering.cpp

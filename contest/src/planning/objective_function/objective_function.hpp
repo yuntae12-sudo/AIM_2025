@@ -93,6 +93,39 @@ struct RobotState {
     double x, y, yaw, v, w;
 };
 
+struct mode_struct {
+    bool linear_mode;
+    bool coner_mode;
+    bool static_obstacle_mode;
+    bool dynamic_obstacle_mode;
+};
+
+struct sampling_struct {
+    double v_min;
+    double v_max;
+    double v_step;
+
+    double tp_min;
+    double tp_max;
+    double tp_step;
+    
+    double target_v;
+
+};
+
+struct Weight_struct {
+    double W_HEADING;
+    double W_DIST_OBS;
+    double W_VEL;
+    double W_PATH;
+
+    double LIMIT_PATH_ERR;   // 경로에서 3m 이상 벗어나면 0점 // 3.0 -> 5.0
+    double LIMIT_HEADING;    // 90도(1.57rad) 이상 틀어지면 0점
+    double LIMIT_VEL_ERR;    // 목표 속도와 20km/h 이상 차이나면 0점
+    double LIMIT_DIST_OBS;   // 장애물이 20m보다 멀면 만점(1.0)
+};
+
+
 extern vector<Candidate_struct> Candidate_vec; // 나중에 cpp에서 다시 메모리 할당
 extern vector<Obstacle_struct> Obstacle_vec;
 
@@ -133,31 +166,39 @@ const double tp_step = 0.5; // 0.5초 단위 (0.5, 1.0, 1.5, 2.0 -> 총 4가지 
 // const double W_PATH = 2.0;
 
 // obstacle
-const double W_HEADING = 2.0;
-const double W_DIST_OBS = 4.0;
-const double W_VEL = 1.0;
-const double W_PATH = 1.0;
+// const double W_HEADING = 2.0;
+// const double W_DIST_OBS = 4.0;
+// const double W_VEL = 1.0;
+// const double W_PATH = 1.0;
 
 // 차량 제원
 const double wheel_base = 3.0; // m
-const double ego_radius = 0.8;  // m (안전 마진 포함)
+const double ego_radius = 1.0;  // m (안전 마진 포함)
 
 
 
 // =================== 함수 선언 ===================//
 void generateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<egoPath_struc>& egoPath_vec, const egoPose_struc& egoPose,
                         const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg, const RobotConstants& roboconsts,
-                        const vector<Obstacle_struct>& Obstacle_vec, const vector<egoPath_struc>& in_boundary, const vector<egoPath_struc>& out_boundary);
+                        const vector<Obstacle_struct>& Obstacle_vec, const vector<egoPath_struc>& in_boundary, const vector<egoPath_struc>& out_boundary,
+                        const sampling_struct& sampling, const Weight_struct& weight);
 double getDistanceToOBB(double px, double py, const Obstacle_struct& obs);
 OBB GetEgoOBB(const morai_msgs::GPSMessage::ConstPtr& gps_msg, egoPose_struc& egoPose, RobotConstants& ego_spec);
 OBB GetObsOBB (Obstacle_struct& obs_state);
 void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Obstacle_struct>& Obstacle_vec,
                         const vector<egoPath_struc>& egoPath_vec, const egoPose_struc& egoPose, const egoVelocity_struc& egoVelocity_struc,
                         const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg,
+                        const sampling_struct& sampling, const Weight_struct& weight,
                         int search_start_idx);
 double normalize_angle(double angle);
 int getCurrentIndex(const std::vector<egoPath_struc>& path, const egoPose_struc& pose, int last_idx);
 Candidate_struct selectBestCandidate(const vector<Candidate_struct>& Candidate_vec);
+
+// Mode helpers
+void modeCheck (mode_struct& mode, const vector<Obstacle_struct>& Obstacle_vec, const egoPose_struc& egoPose);
+void linearMode (const mode_struct& mode, sampling_struct& sampling, Weight_struct& weight);
+void conerMode (const mode_struct& mode, sampling_struct& sampling, Weight_struct& weight);
+void staticObstacleMode (const mode_struct& mode, sampling_struct& sampling, Weight_struct& weight);
 
 
 #endif

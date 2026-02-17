@@ -213,7 +213,8 @@ bool BoundaryCheck (double x, double y, const vector<egoPath_struc>& boundary, b
 
 void generateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<egoPath_struc>& egoPath_vec, const egoPose_struc& egoPose,
                         const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg, const RobotConstants& roboconsts,
-                        const vector<Obstacle_struct>& Obstacle_vec, const vector<egoPath_struc>& in_boundary, const vector<egoPath_struc>& out_boundary) {
+                        const vector<Obstacle_struct>& Obstacle_vec, const vector<egoPath_struc>& in_boundary, const vector<egoPath_struc>& out_boundary,
+                        const sampling_struct& sampling, const Weight_struct& weight) {
     Candidate_vec.clear();
     RobotState current_state;
     VectorSpace boundary = GetVelocityVectorSpace(current_state, roboconsts, vel_msg);
@@ -221,7 +222,7 @@ void generateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<eg
     // --- [1. 파라미터 설정] ---
     
     // 조향 샘플링 설정
-    int num_steer_samples = 41; 
+    int num_steer_samples = 31; 
     
     double max_steer_range = 0.45; // 좌우 최대 라디안
     double steer_step = (num_steer_samples > 1) ? (max_steer_range * 2.0) / (num_steer_samples - 1) : 0;
@@ -236,12 +237,12 @@ void generateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<eg
 
     // --- [2. 후보군 생성 루프] ---
 
-    // Loop 1: 속도 (Velocity)
-    for (double v = v_min; v <= v_max; v += v_step) {
+    // Loop 1: 속도 (Velocity) - sampling에서 가져옴
+    for (double v = sampling.v_min; v <= sampling.v_max; v += sampling.v_step) {
         
         // Loop 2: 예측 시간 (Prediction Time) -> 논문 방식 적용
         // 짧은 거리(0.5s)부터 긴 거리(2.0s)까지 다양한 길이의 경로 생성
-        for (double tp = tp_min; tp <= tp_max; tp += tp_step) {
+        for (double tp = sampling.tp_min; tp <= sampling.tp_max; tp += sampling.tp_step) {
 
             // Loop 3: 조향 오프셋 (Steering Offset)
             for (int i = 0; i < num_steer_samples; ++i) {
@@ -273,7 +274,7 @@ void generateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<eg
                 double future_e = egoPose.current_e;
                 double future_n = egoPose.current_n;
                 double future_yaw = egoPose.current_yaw;
-                double dt = 0.2;
+                double dt = 0.1;
                 for (double t = 0; t < tp; t += dt) {
                     double beta = atan((l_rear / wheel_base) * tan(candidate_steer));
                     future_e += v * cos(future_yaw + beta) * dt;
@@ -307,26 +308,21 @@ void generateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<eg
 
 void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Obstacle_struct>& Obstacle_vec,
                         const vector<egoPath_struc>& egoPath_vec, const egoPose_struc& egoPose, const egoVelocity_struc& egoVelocity_struc,
-                        const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg,
+                        const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg, const sampling_struct& sampling,
+                        const Weight_struct& weight,
                         int search_start_idx) {
 
     // [1] 절대 평가를 위한 물리적 한계값 정의 (Tuning Points)
     // 이 값들을 넘어서면 해당 항목 점수는 0점이 됩니다.
-    const double LIMIT_PATH_ERR  = 8.0;        // 경로에서 3m 이상 벗어나면 0점 // 3.0 -> 5.0
-    const double LIMIT_HEADING   = M_PI / 3.0; // 90도(1.57rad) 이상 틀어지면 0점
-    const double LIMIT_VEL_ERR   = 5.0 / 3.6; // 목표 속도와 20km/h 이상 차이나면 0점
-    const double LIMIT_DIST_OBS  = 5.0;       // 장애물이 20m보다 멀면 만점(1.0)
+    // const double LIMIT_PATH_ERR  = 8.0;        // 경로에서 3m 이상 벗어나면 0점 // 3.0 -> 5.0
+    // const double LIMIT_HEADING   = M_PI / 3.0; // 90도(1.57rad) 이상 틀어지면 0점
+    // const double LIMIT_VEL_ERR   = 5.0 / 3.6; // 목표 속도와 20km/h 이상 차이나면 0점
+    // const double LIMIT_DIST_OBS  = 5.0;       // 장애물이 20m보다 멀면 만점(1.0)
 
     // 목표 속도 설정
     // const double goal_v_noraml = 30.0 / 3.6;
     bool coner_flag = isCorner(egoPath_vec, egoPose, findClosestPoint(egoPath_vec, egoPose));
-    double target_v = 10.0 / 3.6; // m/s
-    // if (coner_flag) {
-    //     target_v = 30.0 / 3.6; // m/s
-    // } 
-    // else  {
-    //     target_v = 50.0 / 3.6; // m/s
-    // }
+    double target_v = sampling.target_v; // target set by mode (linear/coner)
 
     
     // 장애물 유무 판단
@@ -353,8 +349,8 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
         double future_yaw = egoPose.current_yaw;
         
         double min_obs_dist = 100.0; // 초기값 (충분히 큰 값)
-        double dt = 0.2;             // 시뮬레이션 dt (정밀도 필요시 조절)
-        double obs_radius = 0.3;    // 장애물 반경 (고정값, 필요시 Obstacle_struct에 추가)
+        double dt = 0.1;             // 시뮬레이션 dt (정밀도 필요시 조절)
+        double obs_radius = 0.0;    // 장애물 반경 (고정값, 필요시 Obstacle_struct에 추가)
 
         // 시뮬레이션 루프
         for (double t = 0; t < candidate.t_p; t += dt) {
@@ -378,7 +374,7 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
         }
 
         // 충돌 체크 (Hard Constraint)
-        if (min_obs_dist < 0.3) { // 0.5m 이내면 충돌로 간주
+        if (min_obs_dist < 0.05) { // 0.5m 이내면 충돌로 간주
             candidate.total_score = -999.0;
             continue; 
         }
@@ -390,19 +386,19 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
         // 1. 장애물 점수 (Obstacle Score)
         // 멀수록 좋음. LIMIT_DIST_OBS 이상이면 1.0, 가까우면 0.0으로 선형 감소
         double norm_obs = 0.0;
-        if (min_obs_dist >= LIMIT_DIST_OBS) {
+        if (min_obs_dist >= weight.LIMIT_DIST_OBS) {
             norm_obs = 1.0;
         } else if (min_obs_dist <= 0.0) {
             norm_obs = 0.0;
         } else {
-            norm_obs = min_obs_dist / LIMIT_DIST_OBS;
+            norm_obs = min_obs_dist / weight.LIMIT_DIST_OBS;
         }
 
         
         // 2. 속도 점수 (Velocity Score)
         // 목표 속도와의 오차가 작을수록 좋음. LIMIT_VEL_ERR 이상 차이나면 0점
         double vel_err = fabs(target_v - candidate.v);
-        double norm_vel = 1.0 - (vel_err / LIMIT_VEL_ERR);
+        double norm_vel = 1.0 - (vel_err / weight.LIMIT_VEL_ERR);
         if (norm_vel < 0.0) norm_vel = 0.0; // Clamping
 
         // 3. 헤딩 점수 (Heading Score)
@@ -417,7 +413,7 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
         double path_heading = atan2(path_dy, path_dx);
 
         double heading_err = fabs(normalize_angle(path_heading - future_yaw));
-        double norm_head = 1.0 - (heading_err / LIMIT_HEADING);
+        double norm_head = 1.0 - (heading_err / weight.LIMIT_HEADING);
         if (norm_head < 0.0) norm_head = 0.0;
 
         // 4. 경로 추종 점수 (Path Score)
@@ -431,7 +427,7 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
             if (d < min_path_dist) min_path_dist = d;
         }
 
-        double norm_path = 1.0 - (min_path_dist / LIMIT_PATH_ERR);
+        double norm_path = 1.0 - (min_path_dist / weight.LIMIT_PATH_ERR);
         if (norm_path < 0.0) norm_path = 0.0;
 
         // ============================================================
@@ -439,10 +435,10 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
         // ============================================================
         // 각 항목이 0.0 ~ 1.0 사이로 완벽히 정규화되었으므로 단순히 더하면 됨
         
-        candidate.total_score = (W_HEADING  * norm_head) + 
-                                (W_VEL      * norm_vel) + 
-                                (W_DIST_OBS * norm_obs) + 
-                                (W_PATH     * norm_path);
+        candidate.total_score = (weight.W_HEADING  * norm_head) + 
+                    (weight.W_VEL      * norm_vel) + 
+                    (weight.W_DIST_OBS * norm_obs) + 
+                    (weight.W_PATH     * norm_path);
 
         // 디버깅용으로 개별 점수 저장 (필요시 사용)
         candidate.score_heading   = norm_head;
