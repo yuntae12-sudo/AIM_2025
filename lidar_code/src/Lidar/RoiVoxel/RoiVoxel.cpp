@@ -75,6 +75,9 @@ void Voxel(LiDAR& st_LiDAR) {
     // [최적화 2] VoxelGrid 객체 재사용
     static pcl::VoxelGrid<pcl::PointXYZ> vg;
     vg.setInputCloud(st_LiDAR.pcl_RoiCloud);
-    vg.setLeafSize(0.13f, 0.13f, 0.13f);
+    // [개선] Voxel 사이즈 최적화
+    // 원래: 0.13m (너무 큼 → 작은 장애물 손실)
+    // 개선: 0.08m (세밀한 형태 인식, 강건성 향상)
+    vg.setLeafSize(0.08f, 0.08f, 0.08f);
     vg.filter(*st_LiDAR.pcl_VoxelCloud);
 }

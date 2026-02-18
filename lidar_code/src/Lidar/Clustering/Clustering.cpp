@@ -1,4 +1,36 @@
 #include "Clustering.hpp"
+#include <cmath>
+
+// [개선] 거리 기반 동적 Tolerance 계산 함수
+// 장애물이 멀수록 센서 노이즈가 커지므로 tolerance를 증가시킴
+float GetDynamicTolerance(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud) {
+    if (cloud->empty()) return 0.8f;
+    
+    float total_dist = 0.0f;
+    int count = 0;
+    
+    // 샘플링: 모든 점을 다 계산하면 느리므로 일부만 사용
+    int sample_step = std::max(1, (int)cloud->size() / 100);
+    
+    for (int i = 0; i < (int)cloud->size(); i += sample_step) {
+        float dist = std::sqrt(cloud->points[i].x * cloud->points[i].x + 
+                              cloud->points[i].y * cloud->points[i].y);
+        total_dist += dist;
+        count++;
+    }
+    
+    float avg_dist = (count > 0) ? total_dist / count : 0.0f;
+    
+    // 거리에 따라 동적으로 tolerance 계산
+    // 근거리(0~10m): 0.4m, 중거리(10~20m): 0.7m, 원거리(20m+): 1.2m
+    if (avg_dist < 10.0f) {
+        return 0.4f + (avg_dist / 10.0f) * 0.3f;  // 0.4 ~ 0.7m
+    } else if (avg_dist < 20.0f) {
+        return 0.7f + ((avg_dist - 10.0f) / 10.0f) * 0.5f;  // 0.7 ~ 1.2m
+    } else {
+        return 1.2f;  // 20m 이상: 고정 1.2m
+    }
+}
 
 void Clustering(LiDAR& st_LiDAR)
 {
@@ -13,8 +45,11 @@ void Clustering(LiDAR& st_LiDAR)
     // 데이터가 바뀔 때마다 트리만 갱신 (훨씬 빠름)
     tree->setInputCloud(st_LiDAR.pcl_NonGroundCloud);
 
-    ec.setClusterTolerance(1.0); // 이 값도 나중엔 거리에 따라 변하게 하면 완벽함 , 원래1.3
-    ec.setMinClusterSize(5);
+    // [개선] 거리 기반 동적 Tolerance 적용
+    float dynamic_tolerance = GetDynamicTolerance(st_LiDAR.pcl_NonGroundCloud);
+    
+    ec.setClusterTolerance(dynamic_tolerance);
+    ec.setMinClusterSize(4);      // 3개 이상의 점으로도 클러스터 인정 (감지 강건성)
     ec.setMaxClusterSize(3000);
     ec.setSearchMethod(tree);
     ec.setInputCloud(st_LiDAR.pcl_NonGroundCloud);

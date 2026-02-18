@@ -54,13 +54,8 @@ void FilterAndMergeClusters(LiDAR& st_LiDAR) {
     // 가드레일 제거 후 결과로 교체
     st_LiDAR.cluster_indices.swap(filtered_clusters);
 
-    // 여기까지 하고 일단 종료 (머지는 OFF)
-    // return;
-
-
-
     // ===============================
-    // [2] (옵션) 가까운 클러스터 머지 - 지금은 사용 X
+    // [2] 가까운 클러스터 머지 - 활성화 (끊어진 장애물 통합용)
     // ===============================
     
     if (st_LiDAR.cluster_indices.empty()) return;
