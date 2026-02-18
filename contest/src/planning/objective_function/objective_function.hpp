@@ -173,7 +173,7 @@ const double tp_step = 0.5; // 0.5초 단위 (0.5, 1.0, 1.5, 2.0 -> 총 4가지 
 
 // 차량 제원
 const double wheel_base = 3.0; // m
-const double ego_radius = 1.0;  // m (안전 마진 포함)
+const double ego_radius = 1.5;  // m (안전 마진 포함)
 
 
 
