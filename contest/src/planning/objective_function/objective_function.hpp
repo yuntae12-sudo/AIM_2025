@@ -24,15 +24,6 @@
 using namespace std;
 
 //================== 구조체 선언 ==================//
-// struct Obstacle_struct {
-//     double e;        // 동쪽 좌표
-//     double n;        // 북쪽 좌표
-
-//     double obs_vel_e;    // east velocity (m/s)
-//     double obs_vel_n;    // north velocity (m/s)
-
-//     double radius;   // 반경(m)
-// };
 struct Point {
     double e;
     double n;
@@ -141,39 +132,9 @@ const double tp_min = 0.5;
 const double tp_max = 3.0;
 const double tp_step = 0.5; // 0.5초 단위 (0.5, 1.0, 1.5, 2.0 -> 총 4가지 경우)
 
-// 평가 가중치 (Weights)
-// const double W_HEADING = 5.0;
-// const double W_DIST_OBS = 7.0;
-// const double W_VEL = 2.0;
-// const double W_PATH = 5.0;
-// const double W_BOUNDARY = 5.0;
-
-// const double W_HEADING = 6.0;
-// const double W_DIST_OBS = 3.0;
-// const double W_VEL = 1.0;
-// const double W_PATH = 6.0;
-
-// linear
-// const double W_HEADING = 1.0;
-// const double W_DIST_OBS = 0.0;
-// const double W_VEL = 1.0;
-// const double W_PATH = 2.0;
-
-// coner
-// const double W_HEADING = 1.0;
-// const double W_DIST_OBS = 0.0;
-// const double W_VEL = 1.0;
-// const double W_PATH = 2.0;
-
-// obstacle
-// const double W_HEADING = 2.0;
-// const double W_DIST_OBS = 4.0;
-// const double W_VEL = 1.0;
-// const double W_PATH = 1.0;
-
 // 차량 제원
 const double wheel_base = 3.0; // m
-const double ego_radius = 0.5;  // m (안전 마진 포함)
+const double ego_radius = 2.0;  // m (안전 마진 포함)
 
 
 
@@ -182,9 +143,6 @@ void generateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<eg
                         const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg, const RobotConstants& roboconsts,
                         const vector<Obstacle_struct>& Obstacle_vec, const vector<egoPath_struc>& in_boundary, const vector<egoPath_struc>& out_boundary,
                         const sampling_struct& sampling, const Weight_struct& weight);
-double getDistanceToOBB(double px, double py, const Obstacle_struct& obs);
-OBB GetEgoOBB(const morai_msgs::GPSMessage::ConstPtr& gps_msg, egoPose_struc& egoPose, RobotConstants& ego_spec);
-OBB GetObsOBB (Obstacle_struct& obs_state);
 void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Obstacle_struct>& Obstacle_vec,
                         const vector<egoPath_struc>& egoPath_vec, const egoPose_struc& egoPose, const egoVelocity_struc& egoVelocity_struc,
                         const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg,

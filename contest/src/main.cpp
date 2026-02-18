@@ -32,8 +32,6 @@ ros::Publisher waypoints_pub;
 ros::Publisher candidate_paths_pub;
 ros::Publisher best_path_pub;
 ros::Publisher boundary_pub;
-ros::Publisher ego_obb_pub;\
-ros::Publisher obs_obb_pub;
 
 ros::Subscriber sub_gps;
 ros::Subscriber sub_imu;
@@ -124,8 +122,6 @@ void mainCallback (const morai_msgs::EgoVehicleStatus::ConstPtr& msg) {
 
     if(!gps_msg) return;
     // if(!lane_msg) return;
-    
-    OBB ego_obb = GetEgoOBB(gps_msg, egoPose, roboconsts);
 
     bodyframe2Enu(egoPose, egoVelocity, msg);
     int current_path_idx = getCurrentIndex(egoPath_vec, egoPose, last_closest_idx);
@@ -223,8 +219,6 @@ void mainCallback (const morai_msgs::EgoVehicleStatus::ConstPtr& msg) {
         publishCandidates(Candidate_vec, candidate_paths_pub); 
         publishBestPath(best_candidate, best_path_pub);
         publishBoundaries(in_boundary_vec, out_boundary_vec);
-        publishEgoOBB(ego_obb);
-        publishObstacleOBBs(obstacles);
     }
 
     velocityControl(msg, egoPose, egoVelocity);
@@ -274,8 +268,6 @@ int main (int argc, char** argv) {
     candidate_paths_pub = nh.advertise<visualization_msgs::MarkerArray>("viz_candidates", 1);
     best_path_pub = nh.advertise<visualization_msgs::Marker>("viz_best_candidate", 1); 
     boundary_pub = nh.advertise<visualization_msgs::Marker>("viz_boundaries", 1);
-    ego_obb_pub = nh.advertise<visualization_msgs::Marker>("viz_ego_obb", 1);
-    obs_obb_pub = nh.advertise<visualization_msgs::MarkerArray>("viz_obs_obb", 1);
 
     sub_obj = nh.subscribe("/target_tracks", 1, obsCallback);
     sub_gps = nh.subscribe("/gps", 1, gpsCallback);

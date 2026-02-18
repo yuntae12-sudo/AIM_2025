@@ -57,66 +57,6 @@ double normalize_angle(double angle) {
     return angle;
 }
 
-OBB GetEgoOBB(const morai_msgs::GPSMessage::ConstPtr& gps_msg, egoPose_struc& egoPose, RobotConstants& ego_spec) {
-    OBB obb;
-
-    // [수정 1] 후륜 축(Rear Axle)에서 기하학적 중심(Geometric Center)까지의 거리 계산
-    // 만약 ego_spec에 rear_overhang이 없다면: length - wheelbase - f_overhang 으로 계산 가능
-    double dist_rear_to_geo_center = (ego_spec.length * 0.5) - ego_spec.r_overhang;
-
-    // [수정 2] 후륜 기준이므로 중심은 차량 진행 방향(앞쪽)에 있음 -> 더하기(+) 연산
-    // egoPose가 Rear Axle이라고 가정
-    double center_e = egoPose.current_e + dist_rear_to_geo_center * cos(egoPose.current_yaw);
-    double center_n = egoPose.current_n + dist_rear_to_geo_center * sin(egoPose.current_yaw);
-
-    double half_l = ego_spec.length * 0.5;
-    double half_w = ego_spec.width * 0.5;
-
-    // Local coordinates: FL, FR, RR, RL (순서는 유지)
-    double local_e[4] = { half_l,  half_l, -half_l, -half_l };
-    double local_y[4] = { half_w, -half_w, -half_w,  half_w };
-
-    double cos_y = cos(egoPose.current_yaw);
-    double sin_y = sin(egoPose.current_yaw);
-
-    for (int i = 0; i < 4; ++i) {
-        // 회전 변환 (2D Rotation Matrix)
-        // x' = x*cos - y*sin
-        // y' = x*sin + y*cos
-        obb.vertices[i].e = center_e + (local_e[i] * cos_y - local_y[i] * sin_y);
-        obb.vertices[i].n = center_n + (local_e[i] * sin_y + local_y[i] * cos_y);
-    }
-
-    return obb;
-}
-
-OBB GetObsOBB (Obstacle_struct& obs_state) { 
-    OBB obs_obb;
-
-    // 데이터가 유효하지 않으면 0으로 초기화된 OBB 반환
-    if (!std::isfinite(obs_state.e) || !std::isfinite(obs_state.n) || 
-        !std::isfinite(obs_state.heading)) {
-        for(int i=0; i<4; ++i) { obs_obb.vertices[i].e = 0; obs_obb.vertices[i].n = 0; }
-        return obs_obb;
-    }
-
-    double half_l = obs_state.length * 0.5;
-    double half_w = obs_state.width * 0.5;
-
-    double local_e[4] = { half_l, half_l, -half_l, -half_l };
-    double local_y[4] = { half_w, -half_w, -half_w, half_w };
-
-    double cos_y = cos(obs_state.heading);
-    double sin_y = sin(obs_state.heading);
-
-    for (int i = 0; i < 4; ++i) {
-        obs_obb.vertices[i].e = obs_state.e + (local_e[i] * cos_y - local_y[i] * sin_y);
-        obs_obb.vertices[i].n = obs_state.n + (local_e[i] * sin_y + local_y[i] * cos_y);
-    }
-
-    return obs_obb;
-}
-
 // [Helper Function] 현재 내 차량이 경로의 몇 번째 점에 있는지 찾기
 int getCurrentIndex(const vector<egoPath_struc>& path, const egoPose_struc& pose, int last_idx) {
     
@@ -274,7 +214,7 @@ void generateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<eg
                 double future_e = egoPose.current_e;
                 double future_n = egoPose.current_n;
                 double future_yaw = egoPose.current_yaw;
-                double dt = 0.05;
+                double dt = 0.15;
                 for (double t = 0; t < tp; t += dt) {
                     double beta = atan((l_rear / wheel_base) * tan(candidate_steer));
                     future_e += v * cos(future_yaw + beta) * dt;
@@ -349,8 +289,8 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
         double future_yaw = egoPose.current_yaw;
         
         double min_obs_dist = 100.0; // 초기값 (충분히 큰 값)
-        double dt = 0.05;             // 시뮬레이션 dt (정밀도 필요시 조절)
-        double obs_radius = 0.0;    // 장애물 반경 (고정값, 필요시 Obstacle_struct에 추가)
+        double dt = 0.15;             // 시뮬레이션 dt (정밀도 필요시 조절)
+        double obs_radius = 0.2;    // 장애물 반경 (고정값, 필요시 Obstacle_struct에 추가)
 
         // 시뮬레이션 루프
         for (double t = 0; t < candidate.t_p; t += dt) {
@@ -374,7 +314,7 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
         }
 
         // 충돌 체크 (Hard Constraint)
-        if (min_obs_dist < 0.5) { // 0.5m 이내면 충돌로 간주
+        if (min_obs_dist < 0.1) { // 0.5m 이내면 충돌로 간주
             candidate.total_score = -999.0;
             continue; 
         }
