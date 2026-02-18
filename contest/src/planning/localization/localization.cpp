@@ -67,40 +67,40 @@ void bodyframe2Enu (const egoPose_struc& egoPose, egoVelocity_struc& egoVelocity
 }
 
 void obsCordinate (const lidar_code::Track& track_data, Obstacle_struct& obstaclePose, const egoPose_struc& egoPose, const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg) {
-    // if(!vel_msg) return;
     // track_msg에서 장애물 좌표 받아오기
     double obs_x = track_data.x;
     double obs_y = track_data.y;
-    // // --- [디버깅 추가] 들어오는 Ego 위치 확인 ---
-    // cout << "------------------------------------" << endl;
-    // cout << "[DEBUG] Code Ego Pos -> E: " << egoPose.current_e << ", N: " << egoPose.current_n << endl;
-    // cout << "[DEBUG] ROS Topic Pos -> X: " << vel_msg->position.x << ", Y: " << vel_msg->position.y << endl;
-    // ------------------------------------------
 
+    // [수정] 라이다 센서 프레임 좌표를 ENU 좌표로 변환
     obstaclePose.e = egoPose.current_e + (obs_x * cos(egoPose.current_yaw) - obs_y * sin(egoPose.current_yaw));
     obstaclePose.n = egoPose.current_n + (obs_x * sin(egoPose.current_yaw) + obs_y * cos(egoPose.current_yaw)) - 3.5;
     
-    // cout << "[DEBUG] Calc Obs Pos -> E: " << obstaclePose.e << ", N: " << obstaclePose.n << endl;
 }
 
 void obsVelocity (const lidar_code::Track& track_data, Obstacle_struct& obstaclePose, const egoPose_struc& egoPose, const egoVelocity_struc& egoVelocity, const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg) {
 
     if(!vel_msg) return;
-    // track_msg에서 장애물 속도 받아오기
+    
+    // track_msg에서 장애물 속도 받아오기 (센서 프레임)
     double obs_vx = track_data.vx;
-    double obs_vy = track_data.vy - GetYawRate(vel_msg);
-    // double heading = vel_msg->heading * (pi / 180.0);
-
-    // double obs_body_vx = obs_vx * cos(heading) - obs_vy * sin(heading);
-    // double obs_body_vy = obs_vx * cos(heading) + obs_vy * sin(heading);
-
-    // obstaclePose.obs_vel_e = egoVelocity.ego_vel_e + (obs_body_vx * cos(egoPose.current_yaw) - obs_body_vy * sin(egoPose.current_yaw));
-    // obstaclePose.obs_vel_n = egoVelocity.ego_vel_n + (obs_body_vx * sin(egoPose.current_yaw) + obs_body_vy * cos(egoPose.current_yaw));
+    double obs_vy = track_data.vy;
+    
+    // [수정] 라이다 센서 프레임 속도 → ENU 좌표계 속도 변환
+    // 각속도 오류 제거: GetYawRate를 속도에서 빼지 말고, 속도 벡터만 회전 변환
+    double obs_vel_sensor_e = obs_vx * cos(egoPose.current_yaw) - obs_vy * sin(egoPose.current_yaw);
+    double obs_vel_sensor_n = obs_vx * sin(egoPose.current_yaw) + obs_vy * cos(egoPose.current_yaw);
+    
+    // [수정] 절대 속도 (ENU) = 센서 프레임 변환 속도
+    // ego 상대 속도가 아닌 절대 속도 사용 (절대 좌표에서의 장애물 속도)
+    obstaclePose.obs_vel_e = obs_vel_sensor_e;
+    obstaclePose.obs_vel_n = obs_vel_sensor_n;
+    
+    // [수정] 속도 크기: 절대 속도 기반
+    double obs_abs_speed = std::sqrt(obs_vel_sensor_e * obs_vel_sensor_e + obs_vel_sensor_n * obs_vel_sensor_n) * 3.6; // km/h
     double ego_speed = vel_msg->velocity.x * 3.6;  // km/h
-    double velocity = std::sqrt(std::pow(track_data.vx, 2) + std::pow(track_data.vy, 2)) * 3.6f; // km/h
-    obstaclePose.obs_speed = velocity - ego_speed;
-    obstaclePose.obs_vel_e = egoVelocity.ego_vel_e + (obs_vx * cos(egoPose.current_yaw) - obs_vy * sin(egoPose.current_yaw));
-    obstaclePose.obs_vel_n = egoVelocity.ego_vel_n + (obs_vx * sin(egoPose.current_yaw) + obs_vy * cos(egoPose.current_yaw));
+    
+    // 상대 속도 (차량 기준)
+    obstaclePose.obs_speed = obs_abs_speed - ego_speed;
 }
 
 bool is_obs_static(const Obstacle_struct& obs) {  // obs_speed가 speed_threshold보다 작으면 정지한 것으로 간주

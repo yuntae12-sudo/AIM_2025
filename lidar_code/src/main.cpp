@@ -54,8 +54,10 @@ void gpsCallback(const morai_msgs::GPSMessage::ConstPtr& msg) {
     double ref_ecef_z = ref_k * (1 - e) * sin(ref_rad_lat);
 
     // 인지 팀이 사용할 전역 변수에 저장 (East -> x, North -> y)
-    current_ego_x = (-sin(rad_lon)*(ecef_x - ref_ecef_x) + cos(rad_lon)*(ecef_y - ref_ecef_y));
-    current_ego_y = (-sin(rad_lat)*cos(rad_lon)*(ecef_x - ref_ecef_x) - sin(rad_lat)*sin(rad_lon)*(ecef_y - ref_ecef_y) + cos(rad_lat)*(ecef_z - ref_ecef_z));
+    current_ego_x = (-sin(ref_rad_lon)*(ecef_x-ref_ecef_x) + cos(ref_rad_lon)*(ecef_y-ref_ecef_y));
+    current_ego_y = (-sin(ref_rad_lat)*cos(ref_rad_lon)*(ecef_x-ref_ecef_x) 
+                     -sin(ref_rad_lat)*sin(ref_rad_lon)*(ecef_y-ref_ecef_y) 
+                     +cos(ref_rad_lat)*(ecef_z-ref_ecef_z));
 }
 
 void imuCallback(const sensor_msgs::Imu::ConstPtr& msg) {

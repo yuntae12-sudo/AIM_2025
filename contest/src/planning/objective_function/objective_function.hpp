@@ -173,7 +173,7 @@ const double tp_step = 0.5; // 0.5초 단위 (0.5, 1.0, 1.5, 2.0 -> 총 4가지 
 
 // 차량 제원
 const double wheel_base = 3.0; // m
-const double ego_radius = 1.5;  // m (안전 마진 포함)
+const double ego_radius = 0.5;  // m (안전 마진 포함)
 
 
 
@@ -199,6 +199,7 @@ void modeCheck (mode_struct& mode, const vector<Obstacle_struct>& Obstacle_vec, 
 void linearMode (const mode_struct& mode, sampling_struct& sampling, Weight_struct& weight);
 void conerMode (const mode_struct& mode, sampling_struct& sampling, Weight_struct& weight);
 void staticObstacleMode (const mode_struct& mode, sampling_struct& sampling, Weight_struct& weight);
+void dynamicObstacleMode (const mode_struct& mode, sampling_struct& sampling, Weight_struct& weight, const Obstacle_struct& obs);
 
 
 #endif

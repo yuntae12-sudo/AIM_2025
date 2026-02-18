@@ -274,7 +274,7 @@ void generateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<eg
                 double future_e = egoPose.current_e;
                 double future_n = egoPose.current_n;
                 double future_yaw = egoPose.current_yaw;
-                double dt = 0.1;
+                double dt = 0.05;
                 for (double t = 0; t < tp; t += dt) {
                     double beta = atan((l_rear / wheel_base) * tan(candidate_steer));
                     future_e += v * cos(future_yaw + beta) * dt;
@@ -349,8 +349,8 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
         double future_yaw = egoPose.current_yaw;
         
         double min_obs_dist = 100.0; // 초기값 (충분히 큰 값)
-        double dt = 0.1;             // 시뮬레이션 dt (정밀도 필요시 조절)
-        double obs_radius = 0.2;    // 장애물 반경 (고정값, 필요시 Obstacle_struct에 추가)
+        double dt = 0.05;             // 시뮬레이션 dt (정밀도 필요시 조절)
+        double obs_radius = 0.0;    // 장애물 반경 (고정값, 필요시 Obstacle_struct에 추가)
 
         // 시뮬레이션 루프
         for (double t = 0; t < candidate.t_p; t += dt) {

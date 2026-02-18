@@ -5,6 +5,7 @@
 # include <map>
 
 # include "planning/localization/localization.hpp"
+# include "planning/localization/obstacle_tracker.hpp"
 # include "planning/objective_function/objective_function.hpp"
 # include "visualization/visualization.hpp"
 # include "planning/gps_jamming/jamming.hpp"
@@ -22,6 +23,9 @@
 # include <lidar_code/Track.h>
 
 using namespace std;
+
+// [추가] ObstacleTracker 전역 객체
+ObstacleTracker g_obstacle_tracker;
 
 ros::Publisher control_pub;
 ros::Publisher waypoints_pub;
@@ -47,6 +51,7 @@ double gain_k;    // look-forward gain
 RobotConstants roboconsts;
 egoPose_struc egoPose;
 egoVelocity_struc egoVelocity;
+Obstacle_struct obstacle;
 vector<egoPath_struc> egoPath_vec;
 vector<egoPath_struc> in_boundary_vec;
 vector<egoPath_struc> out_boundary_vec;
@@ -69,53 +74,43 @@ void imuCallback (const sensor_msgs::Imu::ConstPtr& imu_msg) {
 }
 
 void obsCallback(const lidar_code::TrackArray::ConstPtr& track_msg) {
-    // 1. 이전 프레임의 위치를 저장할 저장소 (static을 사용하여 데이터 유지)
-    // 혹은 main.cpp 상단에 전역 변수로 선언해도 됩니다.
-    static map<int, PoseHistory_struc> prev_obs_pose_map;
-
-    // 현재 프레임 정보를 담기 전, 맵을 비움 (전역 obstacles_map 업데이트용)
-    obstacles_map.clear();
-
-    for (const auto& track_data : track_msg->tracks) {
-        Obstacle_struct obstacle;
-        int current_id = track_data.id;
-
-        // 좌표 및 속도 계산 (localization.cpp의 함수 호출)
-        obsCordinate(track_data, obstacle, egoPose, vel_msg);
-        obsVelocity(track_data, obstacle, egoPose, egoVelocity, vel_msg);
+    // 1. 센서에서 들어온 "날것의" 장애물들을 먼저 ENU로 변환
+    vector<Obstacle_struct> raw_obstacles;
     
-        // 2. 핵심 로직: 이전 프레임 기록이 있는지 확인
-        if (prev_obs_pose_map.find(current_id) != prev_obs_pose_map.end()) {
-            // 과거 기록이 있다면 prev_e/n에 할당
-            obstacle.prev_e = prev_obs_pose_map[current_id].e;
-            obstacle.prev_n = prev_obs_pose_map[current_id].n;
-        } else {
-            // 처음 발견된 장애물이라면 현재 위치를 이전 위치로 초기화
-            obstacle.prev_e = obstacle.e;
-            obstacle.prev_n = obstacle.n;
-        }
-
+    for (const auto& track_data : track_msg->tracks) {
+        Obstacle_struct obs;
+        
+        // 좌표 및 속도 계산 (센서 프레임 → ENU 변환)
+        obsCordinate(track_data, obs, egoPose, vel_msg);
+        obsVelocity(track_data, obs, egoPose, egoVelocity, vel_msg);
+        
         // 장애물 기본 정보 업데이트
-        obstacle.id = current_id;
-        obstacle.length = track_data.length;
-        obstacle.width = track_data.width;
-        obstacle.heading = track_data.heading;
+        obs.id = track_data.id;
+        obs.length = track_data.length;
+        obs.width = track_data.width;
+        obs.heading = track_data.heading;
         
         // 반지름 설정: 대각선 길이의 절반 (안전 마진)
-        obstacle.radius = sqrt(pow(track_data.length, 2) + pow(track_data.width, 2)) / 2.0;
-        if (obstacle.radius < 0.1) obstacle.radius = 0.1;
+        obs.radius = sqrt(pow(track_data.length, 2) + pow(track_data.width, 2)) / 2.0;
+        if (obs.radius < 0.1) obs.radius = 0.1;
         
-        // 전역 맵에 저장
-        obstacles_map[current_id] = obstacle;
+        raw_obstacles.push_back(obs);
     }
-
-    // 3. 다음 프레임을 위해 현재 위치를 prev 저장소에 백업
-    prev_obs_pose_map.clear();
-    for (const auto& pair : obstacles_map) {
-        PoseHistory_struc hist;
-        hist.e = pair.second.e;
-        hist.n = pair.second.n;
-        prev_obs_pose_map[pair.first] = hist;
+    
+    // [추가] 2. 칼만 필터 기반 추적기를 통해 안정화
+    // raw_obstacles에서 튀는 위치들을 필터링해서 stable_obstacles 생성
+    vector<Obstacle_struct> stable_obstacles = g_obstacle_tracker.updateObstacles(raw_obstacles);
+    
+    // 3. 안정화된 장애물들을 전역 맵에 저장
+    obstacles_map.clear();
+    for (const auto& obs : stable_obstacles) {
+        obstacles_map[obs.id] = obs;
+    }
+    
+    // [디버그 출력] 원본 vs 안정화된 개수 비교 (10프레임마다)
+    static int debug_counter = 0;
+    if (++debug_counter % 10 == 0) {
+        ROS_DEBUG("Obstacles: Raw[%zu] → Tracked[%zu]", raw_obstacles.size(), stable_obstacles.size());
     }
 }
 
@@ -160,7 +155,8 @@ void mainCallback (const morai_msgs::EgoVehicleStatus::ConstPtr& msg) {
         linearMode(mode, sampling, weight);
         conerMode(mode, sampling, weight);
         staticObstacleMode(mode, sampling, weight);
-        
+        dynamicObstacleMode(mode, sampling, weight, obstacles[0]); // Assuming first obstacle is the dynamic one
+
         generateCandidates(Candidate_vec, egoPath_vec, egoPose, msg, roboconsts, obstacles, in_boundary_vec, out_boundary_vec, sampling, weight);
         evaluateCandidates(Candidate_vec, obstacles, egoPath_vec, egoPose, egoVelocity, msg, sampling, weight, current_path_idx);
 
