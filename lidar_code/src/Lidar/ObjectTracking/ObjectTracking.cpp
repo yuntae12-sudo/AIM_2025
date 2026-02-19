@@ -131,8 +131,9 @@ void LidarObjectTracker::process(LiDAR& st_LiDAR, double current_timestamp) {
         HungarianAlgorithm solver;
         std::vector<std::vector<double>> cost_matrix(nObs, std::vector<double>(nTracks));
 
-        // 임계값
-        const float GATE_CHI2 = 40.0f;
+        // [개선] 게이트 강화: 40.0 -> 25.0 (더 엄격한 매칭 조건)
+        // 이 값을 줄이면 거짓 매칭이 줄어들고 새 트랙 생성이 증가 (정확성 우선)
+        const float GATE_CHI2 = 25.0f;
 
         for (size_t i = 0; i < nObs; ++i) {
             for (size_t j = 0; j < nTracks; ++j) {
@@ -148,10 +149,11 @@ void LidarObjectTracker::process(LiDAR& st_LiDAR, double current_timestamp) {
 
                 Eigen::Vector2f diff = z - H * t.vec_X;
                 
-                // --- 측정 잡음 공분산 R 튜닝 ---
+                // --- [개선] 측정 잡음 공분산 R 강화 ---
+                // 센서 신뢰도를 높이기 위해 오차 범위를 축소
                 Eigen::Matrix2f R;
-                float sigma_x = 0.3f;   // x 방향 센터 오차 (m) 원래 0.7
-                float sigma_y = 0.3f;   // y 방향 센터 오차 (m)
+                float sigma_x = 0.2f;   // x 방향 센터 오차 (m) 0.7 -> 0.2 (신뢰도 향상)
+                float sigma_y = 0.2f;   // y 방향 센터 오차 (m)
                 R.setZero();
                 R(0,0) = sigma_x * sigma_x;
                 R(1,1) = sigma_y * sigma_y; 
@@ -226,7 +228,7 @@ if (mahal_dist < 100.0f) {  // 너무 큰 값은 제외
             Track& t = st_LiDAR.vec_Tracks[track_idx]; //헝가리안이 매칭하라고 선택한 j번 트랙 객체를 직접 가져오기
             const Lbox& obs = st_LiDAR.vec_Objects[i]; //i번째 관측된 물체 정보를 가져온다
 
-            if (mahal_cache[i][track_idx] < 40.0f) {
+            if (mahal_cache[i][track_idx] < 25.0f) {  // [개선] 임계값 일관성 (40.0 -> 25.0)
                 bMatched = true;
                 kalmanUpdate(t, obs, diff_cache[i][track_idx], S_cache[i][track_idx]);
                 t.s32_LostFrames = 0;
@@ -251,6 +253,10 @@ if (mahal_dist < 100.0f) {  // 너무 큰 값은 제외
 
         if (!bMatched) {
             const Lbox& obs = st_LiDAR.vec_Objects[i];
+
+            // [개선] 새 트랙 생성 전 필터링: 너무 작은 클러스터는 무시
+            // 가짓양성(False Positive) 감소
+            if (obs.f32_L < 0.3f || obs.f32_W < 0.3f) continue;
 
             Track nt; 
             nt.vec_X.setZero();
