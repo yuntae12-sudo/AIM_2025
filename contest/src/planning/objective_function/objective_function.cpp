@@ -214,11 +214,8 @@ void generateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<eg
                 double future_e = egoPose.current_e;
                 double future_n = egoPose.current_n;
                 double future_yaw = egoPose.current_yaw;
-<<<<<<< HEAD
                 double dt = 0.15;
-=======
-                double dt = 0.1;
->>>>>>> f072bd187ae87dcdf417d94a85f1c1f1e3224777
+
                 for (double t = 0; t < tp; t += dt) {
                     double beta = atan((l_rear / wheel_base) * tan(candidate_steer));
                     future_e += v * cos(future_yaw + beta) * dt;
@@ -321,7 +318,7 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
 
         // 충돌 체크 (Hard Constraint)
 
-        if (min_obs_dist < 0.1) { // 0.5m 이내면 충돌로 간주
+        if (min_obs_dist < 0.05) { // 0.5m 이내면 충돌로 간주
             candidate.total_score = -999.0;
             continue; 
         }
