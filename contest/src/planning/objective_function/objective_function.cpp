@@ -326,7 +326,7 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
 
         // 충돌 체크 (Hard Constraint)
 
-        if (min_obs_dist < 0.1) { // 0.5m 이내면 충돌로 간주
+        if (min_obs_dist < 0.05) { // 0.5m 이내면 충돌로 간주
             candidate.total_score = -999.0;
             continue; 
         }
