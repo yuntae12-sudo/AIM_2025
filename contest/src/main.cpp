@@ -3,6 +3,7 @@
 # include <iostream>
 // 수정 부분 
 # include <map>
+# include <limits>
 
 # include "planning/localization/localization.hpp"
 # include "planning/localization/obstacle_tracker.hpp"
@@ -50,11 +51,9 @@ RobotConstants roboconsts;
 egoPose_struc egoPose;
 egoVelocity_struc egoVelocity;
 Obstacle_struct obstacle;
-vector<egoPath_struc> egoPath_vec;
-vector<egoPath_struc> in_boundary_vec;
-vector<egoPath_struc> out_boundary_vec;
 
 int last_closest_idx = 0;
+string active_path_param_name;
 
 morai_msgs::EgoVehicleStatus::ConstPtr vel_msg;
 morai_msgs::GPSMessage::ConstPtr gps_msg;
@@ -99,9 +98,39 @@ void obsCallback(const lidar_code::TrackArray::ConstPtr& track_msg) {
     // raw_obstacles에서 튀는 위치들을 필터링해서 stable_obstacles 생성
     vector<Obstacle_struct> stable_obstacles = g_obstacle_tracker.updateObstacles(raw_obstacles);
     
-    // 3. 안정화된 장애물들을 전역 맵에 저장
+    // [수정] 3. 안정화된 위치는 사용하되, 원본 센서 속도는 보존
     obstacles_map.clear();
-    for (const auto& obs : stable_obstacles) {
+    
+    // raw_obstacles를 ID로 인덱싱 (빠른 조회)
+    map<int, Obstacle_struct> raw_obs_map;
+    for (const auto& obs : raw_obstacles) {
+        raw_obs_map[obs.id] = obs;
+    }
+    
+    
+    // [수정] 중복 제거: 각 ID당 하나씩만 저장
+    map<int, Obstacle_struct> unique_stable_obs;
+    for (auto obs : stable_obstacles) {
+        if (unique_stable_obs.find(obs.id) == unique_stable_obs.end()) {
+            unique_stable_obs[obs.id] = obs;
+        }
+    }
+    
+    for (auto& pair : unique_stable_obs) {
+        auto& obs = pair.second;
+        
+        // 원본 센서 데이터에서 해당 ID의 속도를 찾아 사용
+        if (raw_obs_map.find(obs.id) != raw_obs_map.end()) {
+            
+            obs.obs_vel_e = raw_obs_map[obs.id].obs_vel_e;
+            obs.obs_vel_n = raw_obs_map[obs.id].obs_vel_n;
+            obs.obs_speed = raw_obs_map[obs.id].obs_speed;
+        } else {
+            // raw data가 없으면 속도 0으로 설정 (old tracked data는 사용 안 함)
+            obs.obs_vel_e = 0.0;
+            obs.obs_vel_n = 0.0;
+            obs.obs_speed = 0.0;
+        }
         obstacles_map[obs.id] = obs;
     }
     
@@ -121,12 +150,25 @@ void mainCallback (const morai_msgs::EgoVehicleStatus::ConstPtr& msg) {
     vel_msg = msg;
 
     if(!gps_msg) return;
+    if (egoPath_vec.empty()) {
+        ROS_WARN_THROTTLE(1.0, "Active path is empty. Skip control cycle.");
+        return;
+    }
     // if(!lane_msg) return;
 
+    int requested_path_id = getActivePathId();
+    if (!active_path_param_name.empty() &&
+        ros::param::getCached(active_path_param_name, requested_path_id) &&
+        requested_path_id != getActivePathId()) {
+        if (setActivePath(requested_path_id)) {
+            last_closest_idx = -1; // path 변경 직후에는 전체 탐색으로 인덱스 재동기화
+            ROS_INFO("Runtime path switch -> id=%d", requested_path_id);
+        } else {
+            ROS_WARN_THROTTLE(1.0, "Requested active_path_id=%d is not available", requested_path_id);
+        }
+    }
+
     bodyframe2Enu(egoPose, egoVelocity, msg);
-    int current_path_idx = getCurrentIndex(egoPath_vec, egoPose, last_closest_idx);
-    
-    last_closest_idx = current_path_idx; // 다음을 위해 저장
 
     double steering_angle  = 0.0;
 
@@ -141,17 +183,45 @@ void mainCallback (const morai_msgs::EgoVehicleStatus::ConstPtr& msg) {
         for (const auto& pair : obstacles_map) {
             obstacles.push_back(pair.second);
         }
+        const Obstacle_struct* closest_obstacle = nullptr;
+        double closest_dist = std::numeric_limits<double>::max();
+        for (const auto& obs : obstacles) {
+            const double dist = hypot(obs.e - egoPose.current_e, obs.n - egoPose.current_n);
+            if (dist < closest_dist) {
+                closest_dist = dist;
+                closest_obstacle = &obs;
+            }
+        }
 
         // Mode selection and sampling/weight preparation
         mode_struct mode;
         sampling_struct sampling;
         Weight_struct weight;
         modeCheck(mode, obstacles, egoPose);
+
         // only linear or coner modes supported here
         linearMode(mode, sampling, weight);
         conerMode(mode, sampling, weight);
         staticObstacleMode(mode, sampling, weight);
-        dynamicObstacleMode(mode, sampling, weight, obstacles[0]); // Assuming first obstacle is the dynamic one
+        if (closest_obstacle != nullptr) {
+            dynamicObstacleMode(mode, sampling, weight, *closest_obstacle);
+        }
+        const int path_id_before_manual_mode = getActivePathId();
+        manualMode(mode, sampling, weight);
+        const int path_id_after_manual_mode = getActivePathId();
+        if (path_id_before_manual_mode != path_id_after_manual_mode) {
+            last_closest_idx = -1; // manual 종료/진입 시 경로가 바뀌면 인덱스 히스토리 리셋
+        }
+        if (!active_path_param_name.empty()) {
+            int current_param_path_id = path_id_after_manual_mode;
+            if (ros::param::getCached(active_path_param_name, current_param_path_id) &&
+                current_param_path_id != path_id_after_manual_mode) {
+                ros::param::set(active_path_param_name, path_id_after_manual_mode);
+            }
+        }
+
+        int current_path_idx = getCurrentIndex(egoPath_vec, egoPose, last_closest_idx);
+        last_closest_idx = current_path_idx; // 다음을 위해 저장
 
         generateCandidates(Candidate_vec, egoPath_vec, egoPose, msg, roboconsts, obstacles, in_boundary_vec, out_boundary_vec, sampling, weight);
         evaluateCandidates(Candidate_vec, obstacles, egoPath_vec, egoPose, egoVelocity, msg, sampling, weight, current_path_idx);
@@ -201,6 +271,17 @@ void mainCallback (const morai_msgs::EgoVehicleStatus::ConstPtr& msg) {
         //     printf(" [OBSTACLE SPEED INFO] No obstacles detected.\n");
         // }
 
+        string current_mode = "UNKNOWN";
+        if (mode.manual_mode) current_mode = "MANUAL";
+        else if (mode.dynamic_obstacle_mode) current_mode = "DYNAMIC_OBS";
+        else if (mode.static_obstacle_mode) current_mode = "STATIC_OBS";
+        else if (mode.coner_mode) current_mode = "CORNER";
+        else if (mode.linear_mode) current_mode = "LINEAR";
+        const int current_path_id = getActivePathId();
+        string current_path_name = "path_unknown";
+        if (current_path_id == 1) current_path_name = "path_01";
+        else if (current_path_id == 2) current_path_name = "path_02";
+
         cout << fixed;
         cout.precision(4);
         cout << "============================================" << endl;
@@ -214,7 +295,23 @@ void mainCallback (const morai_msgs::EgoVehicleStatus::ConstPtr& msg) {
         cout << " Selected V    : " << best_candidate.v << " m/s" << endl;
         cout << " Selected Steer: " << best_candidate.steer_angle << " rad" << endl;
         cout << "============================================" << endl;
-            // 시각화 호출
+        cout << "Current Mode: " << current_mode << endl;
+        cout << "Active Path: " << current_path_name << " (id=" << current_path_id << ")" << endl;
+        cout << "Current Index: " << closest_idx << " | Target Index: " << target_idx << endl;
+        
+        // [수정] obstacles 확인 후 접근
+        if (closest_obstacle != nullptr) {
+            // LiDAR 출력은 상대속도(base_link 기준)라 정지 장애물도 ego 속도와 유사하게 보일 수 있음
+            const double rel_kmh = hypot(closest_obstacle->obs_vel_e, closest_obstacle->obs_vel_n) * 3.6;
+            const double abs_vel_e = closest_obstacle->obs_vel_e + egoVelocity.ego_vel_e;
+            const double abs_vel_n = closest_obstacle->obs_vel_n + egoVelocity.ego_vel_n;
+            const double abs_kmh = hypot(abs_vel_e, abs_vel_n) * 3.6;
+            cout << "Obstacle Speed (rel/abs): " << rel_kmh << " / " << abs_kmh << " km/h" << endl;
+        } else {
+            cout << "Obstacle Speed: No obstacles detected" << endl;
+        }
+        
+        // 시각화 호출
         publishWaypoints(egoPath_vec);
         publishCandidates(Candidate_vec, candidate_paths_pub); 
         publishBestPath(best_candidate, best_path_pub);
@@ -247,13 +344,19 @@ int main (int argc, char** argv) {
     private_nh.param("gain_k", gain_k, 0.6);
     private_nh.param("look_ahead", L_d, 1.0);
     private_nh.param("look_k", k, 0.0);
+    private_nh.param("active_path_id", active_path_id, 1);
+    active_path_param_name = ros::this_node::getName() + "/active_path_id";
 
-    if (!loadPath()) {
-        ROS_ERROR("Failed to load path file. Shutting down.");
+    if (!loadPathLibrary()) {
+        ROS_ERROR("Failed to load path library. Shutting down.");
         return 1; // 오류 코드로 종료
     }
-    // safe print
-    ROS_INFO("Path loaded successfully with %lu points.", egoPath_vec.size());
+    if (!setActivePath(active_path_id)) {
+        ROS_WARN("Requested active_path_id=%d not found. Keep current active path id=%d",
+                 active_path_id, getActivePathId());
+    }
+    ROS_INFO("Path library ready. Active path id=%d, points=%lu",
+             getActivePathId(), egoPath_vec.size());
 
     if (!loadBoundaries()) {
         ROS_ERROR("Failed to load path file. Shutting down.");

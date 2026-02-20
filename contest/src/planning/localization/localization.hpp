@@ -9,6 +9,7 @@
 # include <ros/ros.h>
 # include <cmath>
 # include <vector>
+# include <map>
 # include <ros/package.h>
 
 # include <morai_msgs/GPSMessage.h>
@@ -25,11 +26,14 @@ using namespace std;
 struct egoPose_struc {double current_e, current_n, current_yaw;};
 
 struct egoPath_struc {double e, n ,u;};
+struct egoPath2_struc {double e, n, u;};
 
 struct PoseHistory_struc {double e, n;};
 
 extern vector<egoPath_struc> egoPath_vec;
-
+extern vector<egoPath2_struc> egoPath2_vec;
+extern map<int, vector<egoPath_struc>> path_library;
+extern int active_path_id;
 // 바운더리 벡터 선언
 extern vector<egoPath_struc> in_boundary_vec;
 extern vector<egoPath_struc> out_boundary_vec;
@@ -76,6 +80,11 @@ extern double gain_k;
 void gps2Enu (const morai_msgs::GPSMessage::ConstPtr& gps_msg, egoPose_struc& egoPose);
 void yawTf (const sensor_msgs::Imu::ConstPtr& imu_msg, egoPose_struc& egoPose);
 bool loadPath();
+bool loadPath2();
+bool loadPathById(int path_id, const std::string& file_name);
+bool loadPathLibrary();
+bool setActivePath(int path_id);
+int getActivePathId();
 bool loadBoundaries();
 
 void bodyframe2Enu (const egoPose_struc& egoPose, egoVelocity_struc& egoVelocity, const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg);

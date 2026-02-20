@@ -210,7 +210,7 @@ public:
         for (int j = 0; j < raw_obstacles.size(); ++j) {
             if (!raw_matched[j]) {
                 TrackedObstacle new_obj;
-                new_obj.id = next_id++;
+                new_obj.id = raw_obstacles[j].id;  // [수정] 센서 원본 ID 보존
                 new_obj.life_count = MAX_LIFE;
                 new_obj.consecutive_frames = 1;
                 

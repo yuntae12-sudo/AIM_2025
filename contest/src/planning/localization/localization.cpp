@@ -7,6 +7,13 @@ using namespace std;
 
 extern morai_msgs::EgoVehicleStatus::ConstPtr vel_msg;
 
+vector<egoPath_struc> egoPath_vec;
+vector<egoPath2_struc> egoPath2_vec;
+map<int, vector<egoPath_struc>> path_library;
+int active_path_id = 1;
+vector<egoPath_struc> in_boundary_vec;
+vector<egoPath_struc> out_boundary_vec;
+
 double GetYawRate(const morai_msgs::EgoVehicleStatus::ConstPtr& vel_msg) {
     if(!vel_msg) return 0.0;
 
@@ -90,13 +97,33 @@ void obsVelocity (const lidar_code::Track& track_data, Obstacle_struct& obstacle
     double obs_vel_sensor_e = obs_vx * cos(egoPose.current_yaw) - obs_vy * sin(egoPose.current_yaw);
     double obs_vel_sensor_n = obs_vx * sin(egoPose.current_yaw) + obs_vy * cos(egoPose.current_yaw);
     
-    // [수정] 절대 속도 (ENU) = 센서 프레임 변환 속도
-    // ego 상대 속도가 아닌 절대 속도 사용 (절대 좌표에서의 장애물 속도)
-    obstaclePose.obs_vel_e = obs_vel_sensor_e;
-    obstaclePose.obs_vel_n = obs_vel_sensor_n;
+    // [추가] 센서 속도가 0에 가까우면 위치 변화로 속도 추정 (더 정확한 추정)
+    const double SENSOR_VEL_THRESHOLD = 0.1;  // m/s
+    double sensor_speed_mag = hypot(obs_vel_sensor_e, obs_vel_sensor_n);
+    
+    if (sensor_speed_mag < SENSOR_VEL_THRESHOLD) {
+        // 이전 위치가 저장되어 있으면 (초기값이 아니면)
+        if (obstaclePose.prev_e != 0.0 || obstaclePose.prev_n != 0.0) {
+            // 위치 변화로 속도 추정 (dt = 0.1초 가정, LiDAR 주파수 ~10Hz)
+            double dt = 0.1;
+            obstaclePose.obs_vel_e = (obstaclePose.e - obstaclePose.prev_e) / dt;
+            obstaclePose.obs_vel_n = (obstaclePose.n - obstaclePose.prev_n) / dt;
+        } else {
+            obstaclePose.obs_vel_e = obs_vel_sensor_e;
+            obstaclePose.obs_vel_n = obs_vel_sensor_n;
+        }
+    } else {
+        // 센서 속도가 충분하면 그대로 사용
+        obstaclePose.obs_vel_e = obs_vel_sensor_e;
+        obstaclePose.obs_vel_n = obs_vel_sensor_n;
+    }
+    
+    // [추가] 이전 위치 저장 (다음 프레임에서 사용)
+    obstaclePose.prev_e = obstaclePose.e;
+    obstaclePose.prev_n = obstaclePose.n;
     
     // [수정] 속도 크기: 절대 속도 기반
-    double obs_abs_speed = std::sqrt(obs_vel_sensor_e * obs_vel_sensor_e + obs_vel_sensor_n * obs_vel_sensor_n) * 3.6; // km/h
+    double obs_abs_speed = std::sqrt(obstaclePose.obs_vel_e * obstaclePose.obs_vel_e + obstaclePose.obs_vel_n * obstaclePose.obs_vel_n) * 3.6; // km/h
     double ego_speed = vel_msg->velocity.x * 3.6;  // km/h
     
     // 상대 속도 (차량 기준)
@@ -118,36 +145,115 @@ void yawTf (const sensor_msgs::Imu::ConstPtr& imu_msg, egoPose_struc& egoPose) {
 }
 
 
-bool loadPath() {
-    // ros::spin() 이 돌면서 매번 path.txt 파일을 열 것을 대비해 if문으로 egoPath에 숫자double ax, double ay, double cx, double cy, double e, double n, double u열이 들어있으면 다시 열지 말것
-    if (!egoPath_vec.empty()) {
+namespace {
+bool loadPathFile(const string& file_name, vector<egoPath_struc>& out_path) {
+    out_path.clear();
+
+    const string pkg_path = ros::package::getPath("contest");
+    const string file_path = pkg_path + "/src/" + file_name;
+    ifstream input_file(file_path);
+
+    if (!input_file.is_open()) {
+        ROS_WARN("Failed to open path file: %s", file_path.c_str());
+        return false;
+    }
+
+    double e = 0.0;
+    double n = 0.0;
+    double u = 0.0;
+    while (input_file >> e >> n >> u) {
+        out_path.push_back(egoPath_struc{e, n, u});
+    }
+
+    if (out_path.empty()) {
+        ROS_WARN("Path file is empty: %s", file_path.c_str());
+        return false;
+    }
+    return true;
+}
+
+void syncLegacyPath2Vector(const vector<egoPath_struc>& src_path) {
+    egoPath2_vec.clear();
+    egoPath2_vec.reserve(src_path.size());
+    for (const auto& pt : src_path) {
+        egoPath2_vec.push_back(egoPath2_struc{pt.e, pt.n, pt.u});
+    }
+}
+} // namespace
+
+bool loadPathById(int path_id, const std::string& file_name) {
+    if (path_id <= 0) {
+        ROS_ERROR("Invalid path_id: %d", path_id);
+        return false;
+    }
+
+    const auto existing_it = path_library.find(path_id);
+    if (existing_it != path_library.end() && !existing_it->second.empty()) {
         return true;
     }
 
-    // ros가 find_path 패키지의 절대경로를 찾음
-    string pkg_path = ros::package::getPath("contest");
-    // 패키지 안에 파일이 들어있는 디렉토리를 언급해줌으로써 절대 경로 생성
-    string file_path = pkg_path + "/src/path.txt";
-
-    ifstream inputFile;
-    inputFile.open(file_path);
-
-    // file 열기 실패했을때의 if문 -> 디버깅 지점 확인 용도
-    if (!inputFile.is_open()) {
-        cout << "파일 열기에 실패 !" << endl;
+    vector<egoPath_struc> loaded_path;
+    if (!loadPathFile(file_name, loaded_path)) {
         return false;
     }
 
-    double e;
-    double n;
-    double u;
-    while (inputFile >> e >> n >> u) {
-        egoPath_vec.push_back(egoPath_struc{e, n, u});
+    path_library[path_id] = loaded_path;
+    if (path_id == 2) {
+        syncLegacyPath2Vector(loaded_path);
+    }
+    ROS_INFO("Loaded path id=%d from %s (%zu points)",
+             path_id, file_name.c_str(), loaded_path.size());
+    return true;
+}
+
+bool loadPathLibrary() {
+    const bool path1_loaded = loadPathById(1, "path_01.txt") || loadPathById(1, "path.txt");
+    const bool path2_loaded = loadPathById(2, "path_02.txt") || loadPathById(2, "path2.txt");
+
+    if (!path1_loaded && !path2_loaded) {
+        ROS_ERROR("No path files were loaded. Checked path_01/path_02 and path/path2.");
+        return false;
     }
 
-    if (egoPath_vec.empty()) {
-        cout << "egoPath가 비어있습니다 !" << endl;
+    if (path_library.find(active_path_id) == path_library.end()) {
+        active_path_id = path1_loaded ? 1 : 2;
+    }
+    return setActivePath(active_path_id);
+}
+
+bool setActivePath(int path_id) {
+    const auto it = path_library.find(path_id);
+    if (it == path_library.end() || it->second.empty()) {
+        ROS_ERROR("Cannot activate path id=%d (not loaded or empty)", path_id);
         return false;
+    }
+
+    egoPath_vec = it->second;
+    active_path_id = path_id;
+    ROS_INFO("Active path switched to id=%d (%zu points)", active_path_id, egoPath_vec.size());
+    return true;
+}
+
+int getActivePathId() {
+    return active_path_id;
+}
+
+bool loadPath() {
+    const bool loaded = loadPathById(1, "path_01.txt") || loadPathById(1, "path.txt");
+    if (!loaded) {
+        return false;
+    }
+    return setActivePath(1);
+}
+
+bool loadPath2() {
+    const bool loaded = loadPathById(2, "path_02.txt") || loadPathById(2, "path2.txt");
+    if (!loaded) {
+        return false;
+    }
+    const auto it = path_library.find(2);
+    if (it != path_library.end()) {
+        syncLegacyPath2Vector(it->second);
     }
     return true;
 }

@@ -77,7 +77,7 @@ struct RobotConstants {
     double f_overhang = 0.845;
     double r_overhang = 0.79;
 
-    double dt = 1.0;                   // 제어 주기 (2.0 -> 0.1초 단축)
+    double dt = 2.0;                   // 제어 주기 (2.0 -> 0.1초 단축)
 };
 
 struct RobotState {
@@ -89,6 +89,7 @@ struct mode_struct {
     bool coner_mode;
     bool static_obstacle_mode;
     bool dynamic_obstacle_mode;
+    bool manual_mode;
 };
 
 struct sampling_struct {
@@ -159,6 +160,7 @@ void linearMode (const mode_struct& mode, sampling_struct& sampling, Weight_stru
 void conerMode (const mode_struct& mode, sampling_struct& sampling, Weight_struct& weight);
 void staticObstacleMode (const mode_struct& mode, sampling_struct& sampling, Weight_struct& weight);
 void dynamicObstacleMode (const mode_struct& mode, sampling_struct& sampling, Weight_struct& weight, const Obstacle_struct& obs);
+void manualMode (const mode_struct& mode, sampling_struct& sampling, Weight_struct& weight);
 
 
 #endif

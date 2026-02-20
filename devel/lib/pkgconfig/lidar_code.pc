@@ -1,0 +1,8 @@
+prefix=/home/autonav/AIM_2025/src/devel
+
+Name: lidar_code
+Description: Description of lidar_code
+Version: 0.0.0
+Cflags: -I/home/autonav/AIM_2025/src/devel/include
+Libs: -L${prefix}/lib 
+Requires: roscpp std_msgs message_runtime

@@ -114,14 +114,14 @@ double GetMinDistToBoundary(double current_e, double current_n, const vector<ego
 }
 
 bool BoundaryCheck (double x, double y, const vector<egoPath_struc>& boundary, bool is_left_line) {
-    if (boundary.empty()) return false;
+    if (boundary.size() < 2) return false;
 
     // 1. 내 위치에서 가장 가까운 바운더리 점 찾기 (간단한 탐색)
     double min_dist = 1e9;
     int idx = 0;
 
     // (최적화 팁: 전체 탐색 대신 현재 인덱스 주변만 탐색하면 더 빠름)
-    for (int i = 0; i < boundary.size() - 1; ++i) {
+    for (int i = 0; i < static_cast<int>(boundary.size()) - 1; ++i) {
         double d = (boundary[i].e - x)*(boundary[i].e - x) + (boundary[i].n - y)*(boundary[i].n - y);
         if (d < min_dist) {
             min_dist = d;
@@ -130,13 +130,21 @@ bool BoundaryCheck (double x, double y, const vector<egoPath_struc>& boundary, b
     }
 
     // 2. 벡터 생성 (경계선 벡터 & 내 위치 벡터)
+    int idx2 = std::min(idx + 5, static_cast<int>(boundary.size()) - 1);
+    if (idx2 == idx) {
+        idx2 = std::max(0, idx - 1);
+    }
+    if (idx2 == idx) return false;
+
     double Ax = boundary[idx].e;
     double Ay = boundary[idx].n;
-    double Bx = boundary[idx+5].e;
-    double By = boundary[idx+5].n;
+    double Bx = boundary[idx2].e;
+    double By = boundary[idx2].n;
 
     double vec_line_x = Bx - Ax;
     double vec_line_y = By - Ay;
+    if (hypot(vec_line_x, vec_line_y) < 1e-6) return false;
+
     double vec_point_x = x - Ax;
     double vec_point_y = y - Ay;
 
@@ -214,11 +222,8 @@ void generateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<eg
                 double future_e = egoPose.current_e;
                 double future_n = egoPose.current_n;
                 double future_yaw = egoPose.current_yaw;
-<<<<<<< HEAD
                 double dt = 0.15;
-=======
-                double dt = 0.1;
->>>>>>> f072bd187ae87dcdf417d94a85f1c1f1e3224777
+
                 for (double t = 0; t < tp; t += dt) {
                     double beta = atan((l_rear / wheel_base) * tan(candidate_steer));
                     future_e += v * cos(future_yaw + beta) * dt;
@@ -350,18 +355,29 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
 
         // 3. 헤딩 점수 (Heading Score)
         // Lookahead 지점의 경로 방향과 내 차의 방향 오차 (작을수록 좋음)
-        double L_d_val = std::max(3.0, std::min(candidate.v * candidate.t_p, 15.0));
-        int look_ahead_idx = findWaypoint(egoPath_vec, egoPose, L_d_val);
-        
-        if (look_ahead_idx >= egoPath_vec.size() - 1) look_ahead_idx = egoPath_vec.size() - 2;
+        double norm_head = 0.0;
+        if (egoPath_vec.size() >= 2 && weight.LIMIT_HEADING > 1e-6) {
+            double L_d_val = std::max(3.0, std::min(candidate.v * candidate.t_p, 15.0));
+            int look_ahead_idx = findWaypoint(egoPath_vec, egoPose, L_d_val);
 
-        double path_dx = egoPath_vec[look_ahead_idx+3].e - egoPath_vec[look_ahead_idx].e;
-        double path_dy = egoPath_vec[look_ahead_idx+3].n - egoPath_vec[look_ahead_idx].n;
-        double path_heading = atan2(path_dy, path_dx);
+            if (look_ahead_idx < 0) look_ahead_idx = 0;
+            if (look_ahead_idx >= static_cast<int>(egoPath_vec.size()) - 1) {
+                look_ahead_idx = static_cast<int>(egoPath_vec.size()) - 2;
+            }
+            int look_ahead_idx2 = std::min(look_ahead_idx + 3, static_cast<int>(egoPath_vec.size()) - 1);
+            if (look_ahead_idx2 == look_ahead_idx) {
+                look_ahead_idx = std::max(0, look_ahead_idx - 1);
+            }
 
-        double heading_err = fabs(normalize_angle(path_heading - future_yaw));
-        double norm_head = 1.0 - (heading_err / weight.LIMIT_HEADING);
-        if (norm_head < 0.0) norm_head = 0.0;
+            double path_dx = egoPath_vec[look_ahead_idx2].e - egoPath_vec[look_ahead_idx].e;
+            double path_dy = egoPath_vec[look_ahead_idx2].n - egoPath_vec[look_ahead_idx].n;
+            if (hypot(path_dx, path_dy) > 1e-6) {
+                double path_heading = atan2(path_dy, path_dx);
+                double heading_err = fabs(normalize_angle(path_heading - future_yaw));
+                norm_head = 1.0 - (heading_err / weight.LIMIT_HEADING);
+                if (norm_head < 0.0) norm_head = 0.0;
+            }
+        }
 
         // 4. 경로 추종 점수 (Path Score)
         // 경로와의 최단 거리 오차 (작을수록 좋음)
@@ -387,6 +403,19 @@ void evaluateCandidates(vector<Candidate_struct>& Candidate_vec, const vector<Ob
                     (weight.W_DIST_OBS * norm_obs) + 
                     (weight.W_PATH     * norm_path);
 
+        if (!std::isfinite(candidate.total_score) ||
+            !std::isfinite(norm_head) ||
+            !std::isfinite(norm_vel) ||
+            !std::isfinite(norm_obs) ||
+            !std::isfinite(norm_path)) {
+            candidate.total_score = -999.0;
+            candidate.score_heading = 0.0;
+            candidate.score_vel = 0.0;
+            candidate.score_dist_obs = 0.0;
+            candidate.score_dist_path = 0.0;
+            continue;
+        }
+
         // 디버깅용으로 개별 점수 저장 (필요시 사용)
         candidate.score_heading   = norm_head;
         candidate.score_vel       = norm_vel;
@@ -411,7 +440,7 @@ Candidate_struct selectBestCandidate(const vector<Candidate_struct>& Candidate_v
     for (const Candidate_struct& cand : Candidate_vec) {
         
         // 충돌(-999)이나 비정상적인 경로는 패스
-        if (cand.total_score <= -900.0) continue;
+        if (cand.total_score <= -900.0 || !std::isfinite(cand.total_score)) continue;
 
         // 현재 1등보다 점수가 높으면 갱신
         if (cand.total_score > best_cand.total_score) {
