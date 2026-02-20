@@ -7,7 +7,10 @@ namespace {
 constexpr int kManualStartIdx = 159;
 constexpr int kManualEndIdx = 349;
 constexpr double kManualReleaseDist = 5.0; // m
+constexpr int kPath01TargetVStartIdx = 405;
+constexpr int kPath01TargetVEndIdx = 979;
 bool g_manual_mode_latched = false;
+int g_last_path01_idx = -1;
 
 int getPath01ClosestIdx(const egoPose_struc& egoPose) {
     const auto it = path_library.find(1);
@@ -48,6 +51,7 @@ void modeCheck (mode_struct& mode, const vector<Obstacle_struct>& Obstacle_vec, 
         // path_01을 못 찾는 경우에만 현재 active path로 fallback
         path01_idx = findClosestPoint(egoPath_vec, egoPose);
     }
+    g_last_path01_idx = path01_idx;
     const double path01_dist = getPath01DistanceAtIdx(egoPose, path01_idx);
 
     if (!g_manual_mode_latched &&
@@ -123,6 +127,10 @@ void linearMode (const mode_struct& mode, sampling_struct& sampling, Weight_stru
         sampling.v_step = 5.0 / 3.6;
 
         sampling.target_v = 35.0 / 3.6; // m/s
+        if (g_last_path01_idx >= kPath01TargetVStartIdx &&
+            g_last_path01_idx <= kPath01TargetVEndIdx) {
+            sampling.target_v = 20.0 / 3.6;
+        }
 
         sampling.tp_min = 0.5;
         sampling.tp_max = 2.0;
@@ -147,6 +155,10 @@ void conerMode (const mode_struct& mode, sampling_struct& sampling, Weight_struc
         sampling.v_step = 5.0 / 3.6;
 
         sampling.target_v = 20.0 / 3.6; // m/s
+        if (g_last_path01_idx >= kPath01TargetVStartIdx &&
+            g_last_path01_idx <= kPath01TargetVEndIdx) {
+            sampling.target_v = 20.0 / 3.6;
+        }
 
         sampling.tp_min = 0.5;
         sampling.tp_max = 2.0;
