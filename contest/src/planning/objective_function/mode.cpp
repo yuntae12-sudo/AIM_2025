@@ -39,7 +39,7 @@ void linearMode (const mode_struct& mode, sampling_struct& sampling, Weight_stru
         sampling.v_max = 50.0 / 3.6;
         sampling.v_step = 5.0 / 3.6;
 
-        sampling.target_v = 40.0 / 3.6; // m/s
+        sampling.target_v = 35.0 / 3.6; // m/s
 
         sampling.tp_min = 0.5;
         sampling.tp_max = 2.0;
@@ -52,7 +52,7 @@ void linearMode (const mode_struct& mode, sampling_struct& sampling, Weight_stru
 
         weight.LIMIT_PATH_ERR = 5.0;
         weight.LIMIT_HEADING = M_PI / 2.0;
-        weight.LIMIT_VEL_ERR = 5.0 / 3.6;
+        weight.LIMIT_VEL_ERR = 20.0 / 3.6;
         weight.LIMIT_DIST_OBS = 2.0;
     }
 }
@@ -76,7 +76,7 @@ void conerMode (const mode_struct& mode, sampling_struct& sampling, Weight_struc
 
         weight.LIMIT_PATH_ERR = 5.0;
         weight.LIMIT_HEADING = M_PI / 2.0;
-        weight.LIMIT_VEL_ERR = 5.0 / 3.6;
+        weight.LIMIT_VEL_ERR = 20.0 / 3.6;
         weight.LIMIT_DIST_OBS = 2.0;
     }
 }
@@ -107,7 +107,7 @@ void staticObstacleMode (const mode_struct& mode, sampling_struct& sampling, Wei
 
 void dynamicObstacleMode (const mode_struct& mode, sampling_struct& sampling, Weight_struct& weight, const Obstacle_struct& obs) {
     if (mode.dynamic_obstacle_mode) {
-        sampling.v_min = 0.0 / 3.6;
+        sampling.v_min = 10.0 / 3.6;
         sampling.v_max = 30.0 / 3.6;
         sampling.v_step = 5.0 / 3.6;
 
